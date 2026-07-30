@@ -1,0 +1,85 @@
+plugins {
+	id 'fabric-loom' version '1.17.13'
+	id 'maven-publish'
+}
+
+version = project.mod_version + "-" + minecraft_version
+group = project.maven_group
+
+base {
+	archivesName = project.archives_base_name
+}
+
+repositories {
+	// BBS CML EDITION is not published to a maven repository: drop the
+	// released BBS CML EDITION jar into the "libs" folder next to this file.
+	flatDir {
+		dirs 'libs'
+	}
+}
+
+configurations.all {
+	resolutionStrategy {
+		eachDependency { DependencyResolveDetails details ->
+			if (details.requested.group == 'org.lwjgl') {
+				// Minecraft 1.20.4 ships LWJGL 3.3.2
+				details.useVersion '3.3.2'
+			}
+		}
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+
+	// BBS CML EDITION: place the released jar here.
+	modImplementation fileTree(dir: "libs", include: "*.jar")
+
+	// FBX Implementation: bundle only the Assimp module (matching Minecraft 1.20.4's LWJGL version).
+	implementation(include("org.lwjgl:lwjgl-assimp:3.3.2"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows-arm64"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-linux"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-macos"))
+	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-macos-arm64"))
+}
+
+processResources {
+	inputs.property "version", project.version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 17
+}
+
+java {
+	withSourcesJar()
+
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+jar {
+	from("LICENSE.md") {
+		rename { "${it}_${project.base.archivesName.get()}"}
+	}
+}
+
+publishing {
+	publications {
+		mavenJava(MavenPublication) {
+			from components.java
+		}
+	}
+
+	repositories {
+	}
+}
