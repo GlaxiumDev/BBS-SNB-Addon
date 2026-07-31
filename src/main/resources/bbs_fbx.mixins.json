@@ -11,6 +11,7 @@
     "fs.ModelInstanceMixinFS",
     "cml.ModelInstanceMixinCML",
     "cml.BOBJModelVAOMixinCML",
+    "UIFormPanelAccessorCML",
     "cml.UIModelFormPanelMixinCML"
   ],
   "injectors": {

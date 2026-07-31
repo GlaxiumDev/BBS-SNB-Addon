@@ -2,6 +2,7 @@ package elgatopro300.bbsfbx.mixin.cml;
 
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
 
+import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader;
 import mchorse.bbs_mod.client.BBSRendering;
@@ -10,7 +11,6 @@ import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAORenderer;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
-import mchorse.bbs_mod.utils.iris.FormColorGradePatch;
 
 import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.util.math.MatrixStack;
@@ -60,12 +60,6 @@ public abstract class BOBJModelVAOMixinCML
     @Shadow public BOBJArmature armature;
     @Shadow private int vao;
 
-    @Invoker("bindDrawTexture")
-    protected abstract void bbsFbx$bindDrawTexture(Link texture);
-
-    @Invoker("rebindShaderSamplers")
-    protected abstract void bbsFbx$rebindShaderSamplers(ShaderProgram shader, MatrixStack stack, float r, float g, float b, float a, int light, int overlay);
-
     private int[] bbsFbx$dominantMaterialPerTriangle;
     private FBXCompiledData bbsFbx$dominantMaterialSource;
 
@@ -101,14 +95,14 @@ public abstract class BOBJModelVAOMixinCML
 
         if (defaultTexture != null)
         {
-            this.bbsFbx$bindDrawTexture(defaultTexture);
+            BBSModClient.getTextures().bindTexture(defaultTexture);
         }
 
         ModelVAORenderer.setupUniforms(stack, shader);
 
         RenderSystem.setShader(() -> shader);
         shader.bind();
-        FormColorGradePatch.uploadToCurrentProgram();
+        bbsFbx$uploadColorGrade();
 
         GL30.glBindVertexArray(this.vao);
 
@@ -135,8 +129,7 @@ public abstract class BOBJModelVAOMixinCML
             Link texture = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
             Link toUse = texture != null ? texture : defaultTexture;
 
-            this.bbsFbx$bindDrawTexture(toUse);
-            this.bbsFbx$rebindShaderSamplers(shader, stack, r, g, b, a, light, overlay);
+            BBSModClient.getTextures().bindTexture(toUse);
 
             this.bbsFbx$drawTrianglesForMaterial(m);
         }
@@ -215,5 +208,32 @@ public abstract class BOBJModelVAOMixinCML
 
         this.bbsFbx$dominantMaterialPerTriangle = dominant;
         this.bbsFbx$dominantMaterialSource = fbxData;
+    }
+
+    /**
+     * {@code FormColorGradePatch} exists on the {@code 1.20.4} branch of BBS
+     * CML EDITION's source (confirmed directly, called unconditionally right
+     * after {@code shader.bind()} in the real {@code render()}) but
+     * apparently isn't present in every distributed CML jar build - same
+     * kind of version drift as {@code BOBJArmature.copy()}/
+     * {@code ModelInstance.color} earlier, just for a newer/more obscure
+     * corner of the API (an Iris shader color-grading patch). Routed
+     * through reflection so this compiles regardless of which specific CML
+     * jar build is on the classpath; if it's missing, Iris color grading
+     * simply won't apply to multi-material draws on that build - same
+     * outcome as any other custom render path that doesn't call it either.
+     */
+    private static void bbsFbx$uploadColorGrade()
+    {
+        try
+        {
+            Class<?> patch = Class.forName("mchorse.bbs_mod.utils.iris.FormColorGradePatch");
+
+            patch.getMethod("uploadToCurrentProgram").invoke(null);
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            // Not present on this CML build - nothing to do.
+        }
     }
 }
