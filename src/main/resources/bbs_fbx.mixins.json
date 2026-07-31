@@ -9,7 +9,9 @@
     "BOBJModelVAOMixin",
     "base.ModelInstanceMixinBase",
     "fs.ModelInstanceMixinFS",
-    "cml.ModelInstanceMixinCML"
+    "cml.ModelInstanceMixinCML",
+    "cml.BOBJModelVAOMixinCML",
+    "cml.UIModelFormPanelMixinCML"
   ],
   "injectors": {
     "defaultRequire": 1

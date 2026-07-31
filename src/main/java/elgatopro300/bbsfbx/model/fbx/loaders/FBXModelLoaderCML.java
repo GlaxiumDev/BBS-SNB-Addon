@@ -11,6 +11,7 @@ import mchorse.bbs_mod.cubic.data.animation.Animations;
 import mchorse.bbs_mod.cubic.model.ModelManager;
 import mchorse.bbs_mod.cubic.model.loaders.IModelLoader;
 import mchorse.bbs_mod.data.types.MapType;
+import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 
 import org.lwjgl.assimp.AIScene;
@@ -20,6 +21,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -153,9 +155,7 @@ public class FBXModelLoaderCML implements IModelLoader
 
             if (merged.hasMultipleMaterials())
             {
-                Link[] materialTextures = FBXTextureResolverCML.resolveMaterialTextures(data, merged, model, links, models.provider);
-
-                merged.setMaterialTextures(materialTextures);
+                resolveMaterialTextures(merged, model, links, models.provider);
             }
 
             BOBJArmature armature = null;
@@ -196,6 +196,31 @@ public class FBXModelLoaderCML implements IModelLoader
             System.err.println("Failed to load FBX model for " + id + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Fills in {@link FBXCompiledData#materialTextures} for a multi-material
+     * model: a saved user choice (from {@link FBXMaterialTextureConfig})
+     * wins if there is one, otherwise falls back to the same
+     * {@code textures/<material>/} folder convention the single-texture path
+     * already uses. Leaves an entry null (falls back to the model's default
+     * texture at render time) when neither source has anything for that
+     * material - same "no texture yet" outcome as the single-texture path.
+     */
+    private static void resolveMaterialTextures(FBXCompiledData merged, Link model, Collection<Link> links, AssetProvider provider)
+    {
+        Map<String, Link> saved = FBXMaterialTextureConfig.load(provider, model);
+        Link[] textures = new Link[merged.materialNames.length];
+
+        for (int i = 0; i < merged.materialNames.length; i++)
+        {
+            String materialName = merged.materialNames[i];
+            Link chosen = saved.get(materialName);
+
+            textures[i] = chosen != null ? chosen : FBXTextureResolverCML.resolveMaterialTexture(materialName, model, links);
+        }
+
+        merged.setMaterialTextures(textures);
     }
 
     /**

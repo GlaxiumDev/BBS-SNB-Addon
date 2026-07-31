@@ -7,33 +7,14 @@ import mchorse.bbs_mod.bobj.BOBJLoader.BOBJMesh;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.File;
 import java.util.Collection;
 
 /**
- * CML-target texture/color resolution. Two things live here:
- * <ul>
- *   <li>{@link #resolveTexture}/{@link #detectSolidColor} - the model-wide
- *       fallback texture/tint, used when a model has only a single material
- *       (matches how BBS FS's own {@code ModelForm} is used: one
- *       {@code texture} Link, one {@code color} tint).</li>
- *   <li>{@link #resolveMaterialTextures} - per-material textures for models
- *       {@code FBXMeshCompiler#compileMergedWithMaterials} found to have more
- *       than one material, read back out by {@code BOBJModelVAOMixinCML} to
- *       issue one draw call per material with its own texture bound. Neither
- *       Base nor CML's engine has any native concept of "more than one
- *       texture per model" (confirmed directly: their {@code ModelInstance}
- *       carries exactly one {@code texture} field, and {@code BOBJModel}
- *       manages exactly one VAO) - {@code BOBJModelVAOMixinCML} is what
- *       actually makes multiple textures render, by splitting that VAO's
- *       single draw call into one sub-range per material and rebinding the
- *       texture between them.</li>
- * </ul>
+ * CML-target texture/color resolution for the whole model (single texture,
+ * no per-material split - matches how BBS FS's own {@code ModelForm} is
+ * used: one {@code texture} Link, one {@code color} tint).
  *
- * <p>Resolution order, checked once per material (or once for the model as a
- * whole, for the single-material case):
+ * <p>Resolution order, checked once for the model as a whole:
  * <ol>
  *   <li>A {@code textures/<material>/default.png} folder among the model's
  *       links (this is where {@code FBXTextureExtractor}, shared with the FS
@@ -89,6 +70,12 @@ public final class FBXTextureResolverCML
         int b = clampToByte(rgb[2]);
 
         return (0xFF << 24) | (r << 16) | (g << 8) | b;
+    }
+
+    /** Same folder-convention lookup as {@link #resolveTexture}, but for one specific material by name. */
+    public static Link resolveMaterialTexture(String materialName, Link model, Collection<Link> links)
+    {
+        return findMaterialTexture(links, model, materialName);
     }
 
     private static Link resolveOne(String materialName, FBXMesh mesh, Link model, Collection<Link> links)
@@ -167,123 +154,5 @@ public final class FBXTextureResolverCML
     private static int clampToByte(float value)
     {
         return Math.max(0, Math.min(255, Math.round(value * 255f)));
-    }
-
-    /**
-     * Resolves one texture per material for a model {@code compileMergedWithMaterials}
-     * found to have more than one distinct material. Index-aligned with
-     * {@code compiled.materialNames} - element {@code i} is the texture for
-     * material {@code compiled.materialNames[i]}, and is null only if that
-     * material has neither a real texture nor a flat color to fall back on
-     * (in which case {@code BOBJModelVAOMixinCML} leaves whatever texture
-     * was already bound before the model's render call, same as any other
-     * unresolved single-texture model would).
-     *
-     * <p>Same resolution order as {@link #resolveOne} for each material:
-     * an already-extracted/user-provided {@code textures/<material>/default.png}
-     * folder first, then a flat Base Color baked to a new PNG under that
-     * same folder (see {@link #bakeFlatColorTexture}) if the FBX material had
-     * one and no real texture was found. A freshly baked PNG isn't in
-     * {@code links} yet within this same load - like freshly *extracted*
-     * embedded textures, it only resolves on the reload that follows the
-     * file appearing on disk (this addon's {@code ModelManagerMixin} already
-     * marks {@code .fbx} models as reload-watched for exactly this reason).
-     */
-    public static Link[] resolveMaterialTextures(BOBJData data, FBXCompiledData compiled, Link model, Collection<Link> links, AssetProvider provider)
-    {
-        if (compiled.materialNames == null)
-        {
-            return null;
-        }
-
-        Link[] result = new Link[compiled.materialNames.length];
-
-        for (int i = 0; i < compiled.materialNames.length; i++)
-        {
-            String material = compiled.materialNames[i];
-
-            if (material == null || material.isEmpty())
-            {
-                continue;
-            }
-
-            Link folderTexture = findMaterialTexture(links, model, material);
-
-            if (folderTexture != null)
-            {
-                result[i] = folderTexture;
-                continue;
-            }
-
-            float[] color = findMeshColor(data, material);
-
-            if (color != null)
-            {
-                result[i] = bakeFlatColorTexture(provider, model, material, color);
-            }
-        }
-
-        return result;
-    }
-
-    /** First flat Base Color captured off the mesh with this material name, or null if it had a real texture. */
-    private static float[] findMeshColor(BOBJData data, String material)
-    {
-        for (BOBJMesh mesh : data.meshes)
-        {
-            if (material.equals(mesh.name) && mesh instanceof FBXMesh fbxMesh && fbxMesh.color != null)
-            {
-                return fbxMesh.color;
-            }
-        }
-
-        return null;
-    }
-
-    /**
-     * Bakes a small solid-color PNG to {@code textures/<material>/default.png},
-     * the same folder (and file name) {@code FBXTextureExtractor} uses for
-     * embedded textures - so a real texture dropped in later by the user
-     * takes over transparently. Never overwrites a file already there (a
-     * real texture, or a previously baked color, both win over re-baking).
-     * Mirrors {@code FBXTextureExtractor}'s own PNG-writing pattern.
-     */
-    private static Link bakeFlatColorTexture(AssetProvider provider, Link model, String material, float[] rgb)
-    {
-        try
-        {
-            File folder = provider.getFile(model.combine("textures/" + material));
-
-            if (folder == null)
-            {
-                return null;
-            }
-
-            File target = new File(folder, "default.png");
-
-            if (!target.exists())
-            {
-                folder.mkdirs();
-
-                int packed = packColor(rgb);
-                BufferedImage image = new BufferedImage(4, 4, BufferedImage.TYPE_INT_ARGB);
-
-                for (int x = 0; x < 4; x++)
-                {
-                    for (int y = 0; y < 4; y++)
-                    {
-                        image.setRGB(x, y, packed);
-                    }
-                }
-
-                ImageIO.write(image, "png", target);
-            }
-
-            return model.combine("textures/" + material + "/default.png");
-        }
-        catch (Exception e)
-        {
-            return null;
-        }
     }
 }
