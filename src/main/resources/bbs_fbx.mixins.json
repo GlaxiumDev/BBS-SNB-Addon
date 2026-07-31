@@ -10,6 +10,8 @@
     "base.ModelInstanceMixinBase",
     "fs.ModelInstanceMixinFS",
     "cml.ModelInstanceMixinCML",
+    "base.BOBJModelVAOMixinBase",
+    "fs.BOBJModelVAOMixinFS",
     "cml.BOBJModelVAOMixinCML",
     "UIFormPanelAccessorCML",
     "cml.UIModelFormPanelMixinCML"
