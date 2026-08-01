@@ -1,6 +1,5 @@
-package elgatopro300.bbsfbx.mixin.cml;
+package elgatopro300.bbsfbx.mixin;
 
-import elgatopro300.bbsfbx.mixin.UIFormPanelAccessorCML;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -38,6 +37,17 @@ import java.util.function.Supplier;
  * (including all non-FBX models, and single-material FBX ones) are
  * completely unaffected - {@link #bbsFbx$onPickTexture} falls through to
  * exactly the original single-texture-picker call for those.
+ *
+ * <p>Originally shipped as {@code mixin.cml.UIModelFormPanelMixinCML}, gated
+ * to CML only. Moved here (ungated - applies on every fork) once it became
+ * clear nothing in this class actually needs CML: every BBS class/method it
+ * touches was already checked directly against real Base source per the doc
+ * comments below, and the one genuinely CML-only piece
+ * ({@code withFormPreview}) was already behind a reflective try/catch that
+ * silently no-ops where the method doesn't exist. Rendering multiple
+ * materials at all (as opposed to just picking their textures in this menu)
+ * still needs {@code BOBJModelVAOMixinBase}/{@code BOBJModelVAOMixinFS} to
+ * actually be doing their job -- this button doesn't draw anything itself.</p>
  *
  * <p>{@code UIButton}'s click handler ({@code UIClickable.callback}) is a
  * plain public mutable field (confirmed against real source), so rather
@@ -80,7 +90,7 @@ import java.util.function.Supplier;
  * thumbnail - multi-material picking itself is completely unaffected.</p>
  */
 @Mixin(value = UIModelFormPanel.class, remap = false)
-public abstract class UIModelFormPanelMixinCML
+public abstract class UIModelFormPanelMixin
 {
     @Shadow public UIButton pick;
 

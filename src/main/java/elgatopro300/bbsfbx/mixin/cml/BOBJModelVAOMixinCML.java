@@ -129,7 +129,10 @@ public abstract class BOBJModelVAOMixinCML
             Link texture = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
             Link toUse = texture != null ? texture : defaultTexture;
 
-            BBSModClient.getTextures().bindTexture(toUse);
+            // .bind(), not .bindTexture() -- the latter only calls RenderSystem.setShaderTexture,
+            // which is for vanilla's deferred render pipeline. This custom raw-GL draw loop needs
+            // an actual immediate glBindTexture per material, which only .bind() does.
+            BBSModClient.getTextures().bind(toUse);
 
             this.bbsFbx$drawTrianglesForMaterial(m);
         }

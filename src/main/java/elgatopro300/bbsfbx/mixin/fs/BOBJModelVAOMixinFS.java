@@ -118,7 +118,15 @@ public abstract class BOBJModelVAOMixinFS
 
             if (texture != null)
             {
-                BBSModClient.getTextures().bindTexture(texture);
+                // .bind(), not .bindTexture() -- the latter only calls RenderSystem.setShaderTexture,
+                // which is for vanilla's deferred render pipeline. This custom raw-GL draw loop needs
+                // an actual immediate glBindTexture per material, which only .bind() does. This was
+                // the actual bug behind "buttons work, texture picks correctly, but the model still
+                // shows one texture" -- confirmed by reading TextureManager's real source directly:
+                // bindTexture(Link) just stores state for later, .bind(Link) calls Texture.bind(),
+                // which does GL11.glBindTexture(...) right then. Same bug and same fix applied to
+                // mixin.cml.BOBJModelVAOMixinCML, which had the identical mistake.
+                BBSModClient.getTextures().bind(texture);
             }
             else
             {

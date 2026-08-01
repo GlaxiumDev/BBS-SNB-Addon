@@ -47,7 +47,7 @@ import java.util.function.Supplier;
  * of these three loads at a time.
  *
  * <p>Also implements {@link IMaterialTextureHolder} for the multi-material
- * FBX picker UI ({@code UIModelFormPanelMixinCML}). This is a pure
+ * FBX picker UI ({@code UIModelFormPanelMixin}). This is a pure
  * delegation layer -- it holds no state of its own, every method reads or
  * writes straight through to the {@link FBXCompiledData} backing this
  * instance's model, which is the SAME object reference

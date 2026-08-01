@@ -1,6 +1,5 @@
 package elgatopro300.bbsfbx.mixin;
 
-import elgatopro300.bbsfbx.mixin.cml.UIModelFormPanelMixinCML;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.ui.forms.editors.panels.UIFormPanel;
 
@@ -9,7 +8,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 
 /**
  * Exposes {@code UIFormPanel<T extends Form>.form} for use by
- * {@link UIModelFormPanelMixinCML}.
+ * {@link UIModelFormPanelMixin}.
  *
  * <p>This is deliberately an {@code @Accessor} mixin targeting
  * {@code UIFormPanel} directly - the class that actually <em>declares</em>
@@ -24,7 +23,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
  *
  * <p>Any instance of {@code UIModelFormPanel} is also an instance of
  * {@code UIFormPanel}, so {@code (UIFormPanelAccessorCML) (Object) this}
- * inside {@link UIModelFormPanelMixinCML} is a valid cast.</p>
+ * inside {@link UIModelFormPanelMixin} is a valid cast.</p>
  */
 @Mixin(value = UIFormPanel.class, remap = false)
 public interface UIFormPanelAccessorCML
