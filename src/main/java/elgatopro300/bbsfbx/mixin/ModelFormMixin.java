@@ -1,6 +1,7 @@
 package elgatopro300.bbsfbx.mixin;
 
 import elgatopro300.bbsfbx.model.fbx.loaders.IFormMaterialTextureHolder;
+import elgatopro300.bbsfbx.render.MaterialPbrIntensity;
 
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.resources.Link;
@@ -64,6 +65,17 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
     @Unique
     private final ValueString bbsFbx$materialTextures = new ValueString("bbsfbx_material_textures", "");
 
+    /**
+     * Runtime-only overrides written by the film editor on Base/CML (see
+     * {@link IFormMaterialTextureHolder#bbsFbx$setRuntimeMaterialTextureOverride}).
+     * Never persisted, and cleared/rewritten every playback tick -- the film's
+     * counterpart to {@code setRuntimeValue} on ordinary form properties and
+     * to FS's native {@code ModelForm.materialTextureOverrides}. Lives above
+     * the persisted ValueString choice in the merge order.
+     */
+    @Unique
+    private final Map<String, Link> bbsFbx$runtimeMaterialTextureOverrides = new LinkedHashMap<>();
+
     @Inject(method = "<init>", at = @At("RETURN"), remap = false)
     private void bbsFbx$registerMaterialTexturesValue(CallbackInfo info)
     {
@@ -124,6 +136,7 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
             }
         }
 
+        result.putAll(this.bbsFbx$runtimeMaterialTextureOverrides);
         bbsFbx$mergeNativeOverrides(result);
 
         return result;
@@ -206,6 +219,72 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
         }
 
         this.bbsFbx$materialTextures.set(sb.toString());
+    }
+
+    @Override
+    @Unique
+    public void bbsFbx$setRuntimeMaterialTextureOverride(String material, Link link)
+    {
+        if (link == null)
+        {
+            this.bbsFbx$runtimeMaterialTextureOverrides.remove(material);
+        }
+        else
+        {
+            this.bbsFbx$runtimeMaterialTextureOverrides.put(material, link);
+        }
+    }
+
+    /**
+     * Runtime-only per-material PBR overrides for the CML fork's per-material
+     * PBR film sub-tracks. Never persisted; rewritten every playback tick.
+     * Nullable fields on {@link MaterialPbrIntensity} mean "no override for
+     * this channel - fall back to the whole-model value"; an entry whose
+     * fields are both null is removed.
+     */
+    @Unique
+    private final Map<String, MaterialPbrIntensity> bbsFbx$runtimeMaterialPbrOverrides = new LinkedHashMap<>();
+
+    @Override
+    @Unique
+    public Map<String, MaterialPbrIntensity> bbsFbx$getMaterialPbrOverrides()
+    {
+        return this.bbsFbx$runtimeMaterialPbrOverrides;
+    }
+
+    @Override
+    @Unique
+    public void bbsFbx$setRuntimeMaterialPbr(String material, Float normal, Float specular)
+    {
+        if (normal == null && specular == null)
+        {
+            this.bbsFbx$runtimeMaterialPbrOverrides.remove(material);
+
+            return;
+        }
+
+        MaterialPbrIntensity intensity = this.bbsFbx$runtimeMaterialPbrOverrides.get(material);
+
+        if (intensity == null)
+        {
+            intensity = new MaterialPbrIntensity();
+            this.bbsFbx$runtimeMaterialPbrOverrides.put(material, intensity);
+        }
+
+        if (normal != null)
+        {
+            intensity.normal = normal;
+        }
+
+        if (specular != null)
+        {
+            intensity.specular = specular;
+        }
+
+        if (intensity.normal == null && intensity.specular == null)
+        {
+            this.bbsFbx$runtimeMaterialPbrOverrides.remove(material);
+        }
     }
 
     @Unique

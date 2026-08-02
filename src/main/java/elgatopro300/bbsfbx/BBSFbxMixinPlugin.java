@@ -29,6 +29,7 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
     private static final String BASE_PACKAGE = "elgatopro300.bbsfbx.mixin.base.";
     private static final String FS_PACKAGE = "elgatopro300.bbsfbx.mixin.fs.";
     private static final String CML_PACKAGE = "elgatopro300.bbsfbx.mixin.cml.";
+    private static final String BASECML_PACKAGE = "elgatopro300.bbsfbx.mixin.basecml.";
 
     @Override
     public void onLoad(String mixinPackage)
@@ -59,6 +60,11 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
         if (mixinClassName.startsWith(CML_PACKAGE))
         {
             return fork == BBSFork.CML;
+        }
+
+        if (mixinClassName.startsWith(BASECML_PACKAGE))
+        {
+            return fork == BBSFork.BASE || fork == BBSFork.CML;
         }
 
         return true;

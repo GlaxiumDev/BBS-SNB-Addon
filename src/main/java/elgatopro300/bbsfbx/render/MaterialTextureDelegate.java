@@ -4,7 +4,14 @@ import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
 import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
 
 import mchorse.bbs_mod.cubic.IModel;
+import mchorse.bbs_mod.cubic.ModelInstance;
+import mchorse.bbs_mod.forms.forms.Form;
+import mchorse.bbs_mod.forms.forms.ModelForm;
+import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
+import mchorse.bbs_mod.settings.values.core.ValueLink;
+import mchorse.bbs_mod.settings.values.numeric.ValueFloat;
 
 import java.util.Collections;
 import java.util.List;
@@ -77,6 +84,108 @@ public final class MaterialTextureDelegate
         return data == null ? Collections.emptyList() : List.of(data.materialNames);
     }
 
+    /** Materials of the FBX model behind this Form, empty when the Form isn't a multi-material FBX {@code ModelForm}. */
+    public static List<String> getMaterials(Form form)
+    {
+        IModel model = getModel(form);
+
+        return model == null ? Collections.emptyList() : getMaterials(model);
+    }
+
+    /**
+     * True when the FBX model behind this Form has more than one material.
+     * This is the "multi-texture" condition the film editor uses to decide
+     * whether the whole-model {@code texture} track is redundant (each
+     * material already has its own track) and should be hidden.
+     */
+    public static boolean hasMultipleMaterials(Form form)
+    {
+        return getMaterials(form).size() > 1;
+    }
+
+    /**
+     * Material name behind a per-material PBR channel path, or null. The CML
+     * fork's film editor nests {@code pbr_normal_intensity} /
+     * {@code pbr_specular_intensity} sub-tracks under each material sheet,
+     * keyed {@code <material>:pbr_normal_intensity} / {@code ...:pbr_specular_intensity}
+     * (the same {@code parent:child} convention the pose limb tracks use).
+     */
+    public static String materialFromPbrPath(String path)
+    {
+        if (path == null)
+        {
+            return null;
+        }
+
+        if (!path.endsWith(":pbr_normal_intensity") && !path.endsWith(":pbr_specular_intensity"))
+        {
+            return null;
+        }
+
+        int colon = path.lastIndexOf(':');
+
+        return colon > 0 ? path.substring(0, colon) : null;
+    }
+
+    /** True when {@code path} is a per-material PBR channel of this Form's FBX model (CML). */
+    public static boolean isMaterialPbrChannel(Form form, String path)
+    {
+        String material = materialFromPbrPath(path);
+
+        return material != null && isMaterial(form, material);
+    }
+
+    /**
+     * True when {@code name} is one of the FBX materials behind this Form.
+     * The film editor's synthetic per-material keyframe channels are keyed
+     * exactly by the material name (no prefix - the track label IS the
+     * material name, same as FS's material sheets), so this doubles as the
+     * "is this a material channel" check. {@code getProperty(form, name)}
+     * is checked separately by callers so a real form property that happens
+     * to share a name always wins.
+     */
+    public static boolean isMaterial(Form form, String name)
+    {
+        IModel model = getModel(form);
+
+        return model != null && name != null && !name.isEmpty() && isMaterial(model, name);
+    }
+
+    public static boolean isMaterial(IModel model, String name)
+    {
+        FBXCompiledData data = materialData(model);
+
+        if (data == null || name == null)
+        {
+            return false;
+        }
+
+        for (String material : data.materialNames)
+        {
+            if (material.equals(name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static IModel getModel(Form form)
+    {
+        if (form instanceof ModelForm modelForm)
+        {
+            ModelInstance instance = ModelFormRenderer.getModel(modelForm);
+
+            if (instance != null)
+            {
+                return instance.model;
+            }
+        }
+
+        return null;
+    }
+
     /** The shared, resolved-at-load-time default texture for one material - see class doc. Null if nothing was resolved for it. */
     public static Link getDefaultMaterialTexture(IModel model, String material)
     {
@@ -92,6 +201,58 @@ public final class MaterialTextureDelegate
         return index >= 0 && data.materialTextures != null && index < data.materialTextures.length
                 ? data.materialTextures[index]
                 : null;
+    }
+
+    /**
+     * Synthetic {@code BaseValueBasic} backing a per-material film track's
+     * {@code UIKeyframeSheet} on Base/CML. The vanilla default-value path
+     * used when a new keyframe is created reads {@code property.get()} when
+     * the sheet has a property and falls back to
+     * {@code KeyframeChannel.getFactory().createEmpty()} (the error texture
+     * for link channels) when it does not -- material channels have no real
+     * form property, so without this every new material keyframe would
+     * default to {@code bbs:textures/error.png}. Mirroring FS's native
+     * per-material implementation (which hands each material sheet a
+     * {@code ValueLink} seeded with the material default), the parent is set
+     * so {@code FormUtils.getForm(property)} still resolves the owning form
+     * for track grouping/sorting.
+     */
+    public static BaseValueBasic materialSheetProperty(Form form, String material)
+    {
+        IModel model = getModel(form);
+        Link link = getDefaultMaterialTexture(model, material);
+        ValueLink property = new ValueLink(material, link);
+
+        property.setParent(form);
+
+        return property;
+    }
+
+    /**
+     * Synthetic {@code BaseValueBasic} backing a per-material PBR sub-track
+     * on the CML fork ({@code <material>:pbr_normal_intensity} /
+     * {@code <material>:pbr_specular_intensity}). A {@code ValueFloat}
+     * seeded with the neutral intensity ({@code 1.0}) and parented to the
+     * owning Form, so new keyframes default to {@code 1.0} instead of the
+     * float factory's {@code createEmpty()} ({@code 0.0}, which would mean
+     * "no PBR effect") and so {@code FormUtils.getForm(property)} still
+     * resolves the owning Form for grouping/sorting. Returns null for any
+     * path that isn't a per-material PBR path.
+     */
+    public static BaseValueBasic materialPbrSheetProperty(Form form, String path)
+    {
+        String material = materialFromPbrPath(path);
+
+        if (material == null || !isMaterial(form, material))
+        {
+            return null;
+        }
+
+        ValueFloat property = new ValueFloat(path, 1.0f, 0.0f, 4.0f);
+
+        property.setParent(form);
+
+        return property;
     }
 
     private static int indexOf(String[] names, String name)

@@ -21,7 +21,13 @@
     "base.ModelFormRendererMixinBase",
     "fs.ModelFormRendererMixinFS",
     "cml.ModelFormRendererMixinCML",
-    "cml.BOBJModelCopyMixin"
+    "cml.BOBJModelCopyMixin",
+    "base.UIReplaysEditorMixinBase",
+    "base.UIAnimationStateEditorMixinBase",
+    "basecml.FormUtilsMixin",
+    "basecml.FormPropertiesMixin",
+    "cml.UIReplaysEditorMixinCML",
+    "cml.UIAnimationStateEditorMixinCML"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -1,6 +1,8 @@
 package elgatopro300.bbsfbx.mixin.cml;
 
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
+import elgatopro300.bbsfbx.render.CurrentMaterialPbrOverrides;
+import elgatopro300.bbsfbx.render.MaterialPbrIntensity;
 
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.bobj.BOBJArmature;
@@ -9,6 +11,7 @@ import mchorse.bbs_mod.client.BBSRendering;
 import mchorse.bbs_mod.cubic.render.vao.Attributes;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAORenderer;
+import mchorse.bbs_mod.graphics.texture.Texture;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 
@@ -124,6 +127,8 @@ public abstract class BOBJModelVAOMixinCML
         String[] materialNames = fbxData.materialNames;
         Link[] materialTextures = fbxData.materialTextures;
         java.util.Map<String, Link> overrides = elgatopro300.bbsfbx.render.CurrentMaterialTextureOverrides.current();
+        java.util.Map<String, MaterialPbrIntensity> pbrOverrides = CurrentMaterialPbrOverrides.current();
+        MaterialPbrIntensity base = CurrentMaterialPbrOverrides.currentBase();
 
         for (int m = 0; m < materialNames.length; m++)
         {
@@ -131,13 +136,31 @@ public abstract class BOBJModelVAOMixinCML
             Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
             Link toUse = override != null ? override : (sharedDefault != null ? sharedDefault : defaultTexture);
 
+            MaterialPbrIntensity pbr = pbrOverrides.get(materialNames[m]);
+
+            if (pbr != null)
+            {
+                bbsFbx$setPbrIntensity(
+                        pbr.normal != null ? pbr.normal : (base.normal != null ? base.normal : 1.0F),
+                        pbr.specular != null ? pbr.specular : (base.specular != null ? base.specular : 1.0F));
+            }
+
             // .bind(), not .bindTexture() -- the latter only calls RenderSystem.setShaderTexture,
             // which is for vanilla's deferred render pipeline. This custom raw-GL draw loop needs
             // an actual immediate glBindTexture per material, which only .bind() does.
             BBSModClient.getTextures().bind(toUse);
 
+            // Snapshot the active PBR intensity against this material's texture so the Iris
+            // PBR loader applies it - the same mechanism CML's own TextureManager.bindTexture
+            // uses via BBSRendering.trackTexture. With no per-material override the active
+            // intensity is still the whole-model one from ModelFormRenderer.applyPBRTextureIntensity.
+            BBSRendering.trackTexture(BBSModClient.getTextures().getTexture(toUse));
+
             this.bbsFbx$drawTrianglesForMaterial(m);
         }
+
+        // Restore whatever intensity the caller had staged for the rest of the model/pass.
+        bbsFbx$setPbrIntensity(base.normal != null ? base.normal : 1.0F, base.specular != null ? base.specular : 1.0F);
 
         GL30.glDisableVertexAttribArray(Attributes.POSITION);
         GL30.glDisableVertexAttribArray(Attributes.TEXTURE_UV);
@@ -235,6 +258,30 @@ public abstract class BOBJModelVAOMixinCML
             Class<?> patch = Class.forName("mchorse.bbs_mod.utils.iris.FormColorGradePatch");
 
             patch.getMethod("uploadToCurrentProgram").invoke(null);
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            // Not present on this CML build - nothing to do.
+        }
+    }
+
+    /**
+     * Stages the Iris thread-local active PBR intensity (normal + specular)
+     * for the next trackTexture snapshot. CML-only API, invoked reflectively
+     * so this class still compiles against Base/FS. Goes through
+     * {@code BBSRendering.setPBRTextureIntensity} rather than loading
+     * {@code IrisUtils} directly: the call chain mirrors what CML's own
+     * {@code ModelFormRenderer.applyPBRTextureIntensity} does every render
+     * and works fine without the Iris mod installed, whereas
+     * {@code Class.forName("IrisUtils")} would force initialization of a
+     * class that references Iris classes absent from the classpath.
+     */
+    private static void bbsFbx$setPbrIntensity(float normal, float specular)
+    {
+        try
+        {
+            BBSRendering.class.getMethod("setPBRTextureIntensity", float.class, float.class)
+                    .invoke(null, normal, specular);
         }
         catch (ReflectiveOperationException ignored)
         {

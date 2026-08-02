@@ -2,7 +2,9 @@ package elgatopro300.bbsfbx.mixin.cml;
 
 import elgatopro300.bbsfbx.model.fbx.loaders.IFormMaterialTextureHolder;
 import elgatopro300.bbsfbx.mixin.FormRendererAccessor;
+import elgatopro300.bbsfbx.render.CurrentMaterialPbrOverrides;
 import elgatopro300.bbsfbx.render.CurrentMaterialTextureOverrides;
+import elgatopro300.bbsfbx.render.MaterialPbrIntensity;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -50,11 +52,42 @@ public abstract class ModelFormRendererMixinCML
 
         if (form instanceof ModelForm modelForm)
         {
-            CurrentMaterialTextureOverrides.push(((IFormMaterialTextureHolder) modelForm).bbsFbx$getMaterialTextureOverrides());
+            IFormMaterialTextureHolder holder = (IFormMaterialTextureHolder) modelForm;
+
+            CurrentMaterialTextureOverrides.push(holder.bbsFbx$getMaterialTextureOverrides());
+            CurrentMaterialPbrOverrides.push(holder.bbsFbx$getMaterialPbrOverrides(), bbsFbx$formPbrIntensity(modelForm));
         }
         else
         {
             CurrentMaterialTextureOverrides.push(null);
+            CurrentMaterialPbrOverrides.push(null, null);
+        }
+    }
+
+    /**
+     * Reads the whole-model PBR intensity off the {@code ModelForm}'s
+     * CML-only {@code pbrNormalIntensity}/{@code pbrSpecularIntensity}
+     * {@code ValueFloat}s (via reflection so this class still compiles
+     * against Base/FS, and so IrisUtils never has to be re-read from the
+     * render path). Returns {@code null} when the fields aren't there.
+     */
+    private static MaterialPbrIntensity bbsFbx$formPbrIntensity(ModelForm modelForm)
+    {
+        try
+        {
+            Object normal = ModelForm.class.getField("pbrNormalIntensity").get(modelForm);
+            Object specular = ModelForm.class.getField("pbrSpecularIntensity").get(modelForm);
+
+            MaterialPbrIntensity intensity = new MaterialPbrIntensity();
+
+            intensity.normal = ((Number) normal.getClass().getMethod("get").invoke(normal)).floatValue();
+            intensity.specular = ((Number) specular.getClass().getMethod("get").invoke(specular)).floatValue();
+
+            return intensity;
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            return null;
         }
     }
 
@@ -68,5 +101,6 @@ public abstract class ModelFormRendererMixinCML
             boolean renderEquipment, CallbackInfo info)
     {
         CurrentMaterialTextureOverrides.pop();
+        CurrentMaterialPbrOverrides.pop();
     }
 }

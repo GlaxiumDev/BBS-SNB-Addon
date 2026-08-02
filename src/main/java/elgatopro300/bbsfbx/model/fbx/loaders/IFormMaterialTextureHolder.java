@@ -1,5 +1,7 @@
 package elgatopro300.bbsfbx.model.fbx.loaders;
 
+import elgatopro300.bbsfbx.render.MaterialPbrIntensity;
+
 import mchorse.bbs_mod.resources.Link;
 
 import java.util.Map;
@@ -28,4 +30,27 @@ public interface IFormMaterialTextureHolder
 
     /** Assigns (or clears, with a null link) this Form's texture override for one material. */
     void bbsFbx$setMaterialTextureOverride(String material, Link link);
+
+    /**
+     * Assigns (or clears, with a null link) a runtime-only material texture
+     * override, used by the film editor on Base/CML: those forks' film
+     * system has no native per-material API, so the film's keyframes write
+     * here instead of {@link #bbsFbx$setMaterialTextureOverride}. Unlike the
+     * persisted variant this never touches the form's saved data, mirroring
+     * how {@code setRuntimeValue} works for ordinary form properties and
+     * how FS's film writes into {@code ModelForm.materialTextureOverrides}.
+     */
+    void bbsFbx$setRuntimeMaterialTextureOverride(String material, Link link);
+
+    /**
+     * Runtime-only per-material PBR intensity overrides (CML fork only).
+     * Written by the film editor's per-material PBR sub-tracks
+     * ({@code <material>:pbr_normal_intensity} / {@code :pbr_specular_intensity})
+     * and read by the per-material draw loop. A null argument clears that
+     * channel's override (the material falls back to the whole-model value);
+     * passing null for both removes the material's entry entirely.
+     */
+    Map<String, MaterialPbrIntensity> bbsFbx$getMaterialPbrOverrides();
+
+    void bbsFbx$setRuntimeMaterialPbr(String material, Float normal, Float specular);
 }
