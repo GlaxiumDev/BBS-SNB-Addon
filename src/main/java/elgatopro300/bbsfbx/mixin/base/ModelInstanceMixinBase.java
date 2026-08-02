@@ -74,4 +74,10 @@ public abstract class ModelInstanceMixinBase implements IMaterialTextureHolder
         return MaterialTextureDelegate.getMaterials(this.model);
     }
 
+    @Override
+    public Link bbsFbx$getDefaultMaterialTexture(String material)
+    {
+        return MaterialTextureDelegate.getDefaultMaterialTexture(this.model, material);
+    }
+
 }

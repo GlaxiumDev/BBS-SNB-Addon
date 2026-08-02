@@ -111,11 +111,14 @@ public abstract class BOBJModelVAOMixinFS
         if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
 
         String[] materialNames = fbxData.materialNames;
+        Link[] materialTextures = fbxData.materialTextures;
         java.util.Map<String, Link> overrides = CurrentMaterialTextureOverrides.current();
 
         for (int m = 0; m < materialNames.length; m++)
         {
-            Link texture = overrides.get(materialNames[m]);
+            Link override = overrides.get(materialNames[m]);
+            Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
+            Link texture = override != null ? override : sharedDefault;
 
             if (texture != null)
             {

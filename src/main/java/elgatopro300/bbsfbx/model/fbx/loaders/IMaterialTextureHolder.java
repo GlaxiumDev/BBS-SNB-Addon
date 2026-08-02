@@ -1,5 +1,7 @@
 package elgatopro300.bbsfbx.model.fbx.loaders;
 
+import mchorse.bbs_mod.resources.Link;
+
 import java.util.List;
 
 /**
@@ -27,4 +29,18 @@ public interface IMaterialTextureHolder
 {
     /** Material names for this model, in a stable index order - empty if there's zero or one. */
     List<String> bbsFbx$getMaterials();
+
+    /**
+     * The SHARED default texture for one material (e.g. resolved from its
+     * own {@code textures/<material>/} folder at load time) - same for
+     * every Form using this model file, unlike the per-Form override on
+     * {@link IFormMaterialTextureHolder}. Fine to share (it's read-only,
+     * structural to the model file itself, exactly like the material name
+     * list above) - reintroduced after the first cut of the leak fix
+     * accidentally removed the only way to read this at all, which is what
+     * caused every un-overridden material to fall through straight to the
+     * whole-model default texture (often null on a multi-material model)
+     * instead of its own resolved one.
+     */
+    Link bbsFbx$getDefaultMaterialTexture(String material);
 }

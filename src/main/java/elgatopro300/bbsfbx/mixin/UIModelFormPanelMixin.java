@@ -165,6 +165,11 @@ public abstract class UIModelFormPanelMixin
         IFormMaterialTextureHolder formHolder = (IFormMaterialTextureHolder) modelForm;
         Link link = formHolder.bbsFbx$getMaterialTextureOverrides().get(material);
 
+        if (link == null && model instanceof IMaterialTextureHolder holder)
+        {
+            link = holder.bbsFbx$getDefaultMaterialTexture(material);
+        }
+
         if (link == null && model != null)
         {
             link = model.texture;

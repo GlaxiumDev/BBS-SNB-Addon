@@ -122,12 +122,14 @@ public abstract class BOBJModelVAOMixinCML
         if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
 
         String[] materialNames = fbxData.materialNames;
+        Link[] materialTextures = fbxData.materialTextures;
         java.util.Map<String, Link> overrides = elgatopro300.bbsfbx.render.CurrentMaterialTextureOverrides.current();
 
         for (int m = 0; m < materialNames.length; m++)
         {
-            Link texture = overrides.get(materialNames[m]);
-            Link toUse = texture != null ? texture : defaultTexture;
+            Link override = overrides.get(materialNames[m]);
+            Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
+            Link toUse = override != null ? override : (sharedDefault != null ? sharedDefault : defaultTexture);
 
             // .bind(), not .bindTexture() -- the latter only calls RenderSystem.setShaderTexture,
             // which is for vanilla's deferred render pipeline. This custom raw-GL draw loop needs

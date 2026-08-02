@@ -95,4 +95,27 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
         return data == null ? Collections.emptyList() : List.of(data.materialNames);
     }
 
+    @Override
+    public Link bbsFbx$getDefaultMaterialTexture(String material)
+    {
+        FBXCompiledData data = this.bbsFbx$materialData();
+
+        if (data == null)
+        {
+            return null;
+        }
+
+        String[] names = data.materialNames;
+
+        for (int i = 0; i < names.length; i++)
+        {
+            if (names[i].equals(material))
+            {
+                return data.materialTextures != null && i < data.materialTextures.length ? data.materialTextures[i] : null;
+            }
+        }
+
+        return null;
+    }
+
 }
