@@ -136,7 +136,7 @@ public final class FBXTextureResolverCML
     private static Link findMaterialTexture(Collection<Link> links, Link model, String material)
     {
         String prefix = model.toString();
-        String folder = "/" + material + "/";
+        String folder = "/textures/" + material + "/";
 
         for (Link link : links)
         {
