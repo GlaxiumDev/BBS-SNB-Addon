@@ -105,6 +105,18 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
     @Unique
     public Map<String, Link> bbsFbx$getMaterialTextureOverrides()
     {
+        Map<String, Link> result = bbsFbx$parsePersistedOverrides();
+
+        result.putAll(this.bbsFbx$runtimeMaterialTextureOverrides);
+        bbsFbx$mergeNativeOverrides(result);
+
+        return result;
+    }
+
+    /** Just the persisted choices - no runtime or native-FS overrides mixed in. Used by {@link #bbsFbx$setMaterialTextureOverride} so a save never accidentally bakes in whatever's merely animating at that moment (see that method's own doc comment). */
+    @Unique
+    private Map<String, Link> bbsFbx$parsePersistedOverrides()
+    {
         Map<String, Link> result = new LinkedHashMap<>();
         String raw = (String) this.bbsFbx$materialTextures.get();
 
@@ -135,9 +147,6 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
                 }
             }
         }
-
-        result.putAll(this.bbsFbx$runtimeMaterialTextureOverrides);
-        bbsFbx$mergeNativeOverrides(result);
 
         return result;
     }
@@ -193,12 +202,26 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
     @Unique
     private static Field bbsFbx$materialTextureOverridesField;
 
-    /** Assigns (or clears, with a null link) this Form's texture override for one material, persisting into {@link #bbsFbx$materialTextures}. */
+    /**
+     * Assigns (or clears, with a null link) this Form's texture override for
+     * one material, persisting into {@link #bbsFbx$materialTextures}.
+     *
+     * <p>Reads {@link #bbsFbx$parsePersistedOverrides} here, NOT
+     * {@link #bbsFbx$getMaterialTextureOverrides} - that one also folds in
+     * runtime (film-animated) and native-FS overrides, and this method
+     * re-serializes whatever map it starts from back into the PERSISTED
+     * property. Starting from the merged view would mean: open the picker,
+     * change material A's texture, and if a film is mid-playback and
+     * currently animating material B's texture via a runtime override at
+     * that exact moment, B's transient animated value gets permanently
+     * baked into the save file too - a real bug this class had until this
+     * fix, not a hypothetical one.</p>
+     */
     @Override
     @Unique
     public void bbsFbx$setMaterialTextureOverride(String material, Link link)
     {
-        Map<String, Link> overrides = this.bbsFbx$getMaterialTextureOverrides();
+        Map<String, Link> overrides = this.bbsFbx$parsePersistedOverrides();
 
         if (link == null)
         {

@@ -26,6 +26,7 @@
     "base.UIAnimationStateEditorMixinBase",
     "basecml.FormUtilsMixin",
     "basecml.FormPropertiesMixin",
+    "basecml.TextureManagerMixinBaseCML",
     "cml.UIReplaysEditorMixinCML",
     "cml.UIAnimationStateEditorMixinCML"
   ],

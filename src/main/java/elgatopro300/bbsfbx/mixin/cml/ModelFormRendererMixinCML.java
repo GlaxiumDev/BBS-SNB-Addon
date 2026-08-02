@@ -18,10 +18,13 @@ import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.util.math.MatrixStack;
 
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.function.Supplier;
 
 /**
@@ -64,29 +67,63 @@ public abstract class ModelFormRendererMixinCML
         }
     }
 
+    @Unique
+    private static Field bbsFbx$pbrNormalField;
+    @Unique
+    private static Field bbsFbx$pbrSpecularField;
+    @Unique
+    private static Method bbsFbx$valueFloatGet;
+    @Unique
+    private static boolean bbsFbx$pbrReflectionFailed;
+
     /**
      * Reads the whole-model PBR intensity off the {@code ModelForm}'s
      * CML-only {@code pbrNormalIntensity}/{@code pbrSpecularIntensity}
      * {@code ValueFloat}s (via reflection so this class still compiles
      * against Base/FS, and so IrisUtils never has to be re-read from the
      * render path). Returns {@code null} when the fields aren't there.
+     *
+     * <p>The {@code Field}/{@code Method} objects are resolved once and
+     * cached in static fields, not re-looked-up on every call - this runs
+     * once per rendered CML model per frame, and {@code Class.getField}/
+     * {@code getMethod} both walk the class's reflection data on every call
+     * if not cached, which is real, easily-avoidable overhead on a hot path
+     * that isn't free (unlike, say, {@code FormPropertiesMixin}'s
+     * equivalent {@code bbsFbx$addMethod} caching, which this mirrors).
+     * {@code bbsFbx$pbrReflectionFailed} latches to true after the first
+     * failed attempt so a permanently-absent API doesn't retry the (failed)
+     * lookup every frame forever either.</p>
      */
     private static MaterialPbrIntensity bbsFbx$formPbrIntensity(ModelForm modelForm)
     {
+        if (bbsFbx$pbrReflectionFailed)
+        {
+            return null;
+        }
+
         try
         {
-            Object normal = ModelForm.class.getField("pbrNormalIntensity").get(modelForm);
-            Object specular = ModelForm.class.getField("pbrSpecularIntensity").get(modelForm);
+            if (bbsFbx$pbrNormalField == null)
+            {
+                bbsFbx$pbrNormalField = ModelForm.class.getField("pbrNormalIntensity");
+                bbsFbx$pbrSpecularField = ModelForm.class.getField("pbrSpecularIntensity");
+                bbsFbx$valueFloatGet = bbsFbx$pbrNormalField.getType().getMethod("get");
+            }
+
+            Object normal = bbsFbx$pbrNormalField.get(modelForm);
+            Object specular = bbsFbx$pbrSpecularField.get(modelForm);
 
             MaterialPbrIntensity intensity = new MaterialPbrIntensity();
 
-            intensity.normal = ((Number) normal.getClass().getMethod("get").invoke(normal)).floatValue();
-            intensity.specular = ((Number) specular.getClass().getMethod("get").invoke(specular)).floatValue();
+            intensity.normal = ((Number) bbsFbx$valueFloatGet.invoke(normal)).floatValue();
+            intensity.specular = ((Number) bbsFbx$valueFloatGet.invoke(specular)).floatValue();
 
             return intensity;
         }
-        catch (ReflectiveOperationException ignored)
+        catch (ReflectiveOperationException error)
         {
+            bbsFbx$pbrReflectionFailed = true;
+
             return null;
         }
     }

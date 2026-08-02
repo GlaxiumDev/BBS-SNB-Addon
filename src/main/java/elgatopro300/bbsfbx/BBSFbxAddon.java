@@ -3,8 +3,10 @@ package elgatopro300.bbsfbx;
 import mchorse.bbs_mod.events.BBSAddonMod;
 import mchorse.bbs_mod.events.Subscribe;
 import mchorse.bbs_mod.events.register.RegisterL10nEvent;
+import mchorse.bbs_mod.events.register.RegisterSourcePacksEvent;
 import mchorse.bbs_mod.l10n.L10n;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.resources.packs.InternalAssetsSourcePack;
 
 import java.util.List;
 
@@ -14,10 +16,11 @@ import org.slf4j.LoggerFactory;
 /**
  * The {@code bbs-addon} entrypoint (see fabric.mod.json).
  *
- * <p>{@code RegisterL10nEvent} is genuinely native, common-bus BBS API --
- * present with an identical shape in BBS Base, BBS FS and BBS CML EDITION
- * (unlike model-loader/importer registration below), so this class needs no
- * fork-specific handling and works unmodified on all three.</p>
+ * <p>{@code RegisterL10nEvent} and {@code RegisterSourcePacksEvent} are
+ * genuinely native, common-bus BBS API -- present with an identical shape in
+ * BBS Base, BBS FS and BBS CML EDITION (unlike model-loader/importer
+ * registration below), so this class needs no fork-specific handling and
+ * works unmodified on all three.</p>
  *
  * <p>Model-loader and importer registration deliberately do NOT go through
  * {@code RegisterModelLoadersEvent}/{@code RegisterImportersEvent} here, even
@@ -41,6 +44,25 @@ public class BBSFbxAddon implements BBSAddonMod
     public BBSFbxAddon()
     {
         LOGGER.info("BBS Fbx Addon ready");
+    }
+
+    /**
+     * BBS only serves the {@code assets} (resourcepacks / {@code
+     * config/bbs/assets}), {@code bbs} and {@code http} sources natively --
+     * a third-party mod's own {@code <modid>:...} source is only reachable
+     * if the mod registers a source pack for it. Without this, the language
+     * files (and any future {@code bbs_fbx:} assets) in this jar resolve to
+     * "couldn't be found" and L10n logs a FileNotFoundException at every
+     * boot. {@code InternalAssetsSourcePack} maps the {@code bbs_fbx} source
+     * to this jar's {@code assets/bbs_fbx/} folder (loaded through the same
+     * classloader that loaded this class), which the base mod posts
+     * {@code RegisterSourcePacksEvent} for before the client L10n reload
+     * runs.
+     */
+    @Subscribe
+    public void registerSourcePacks(RegisterSourcePacksEvent event)
+    {
+        event.provider.register(new InternalAssetsSourcePack("bbs_fbx", "assets/bbs_fbx", BBSFbxAddon.class));
     }
 
     @Subscribe

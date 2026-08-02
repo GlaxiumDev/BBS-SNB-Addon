@@ -30,10 +30,13 @@ import java.util.Collection;
  *
  * <p>If none of those find a real texture, {@link #detectSolidColor} looks
  * for a flat Base Color captured off the material by
- * {@code FBXMeshBuilder} - this addon never bakes that color into a PNG or
- * creates any folder for it; the caller applies it straight to
- * {@code ModelInstance.color} (a plain packed-ARGB int CML's own engine
- * already understands, the same native tint every other model type uses).
+ * {@code FBXMeshBuilder}, and the caller turns it into a synthetic color
+ * texture {@link Link} via {@link #colorLink} - the exact mechanism the
+ * original BBS-FS-only addon used ({@code LinkUtils.color}): a
+ * {@code Link("color", <hex>)} whose pixels BBS's TextureManager generates
+ * in memory, with no PNG ever written to disk. FS's own TextureManager
+ * special-cases that source natively; {@code TextureManagerMixinBaseCML}
+ * gives Base and CML the same handling.</p>
  */
 public final class FBXTextureResolverCML
 {
@@ -65,14 +68,22 @@ public final class FBXTextureResolverCML
         return null;
     }
 
-    /** Packs an {r,g,b} float triple (0-1 each) into an opaque 0xAARRGGBB int, as {@code ModelInstance.color} expects. */
-    public static int packColor(float[] rgb)
+    /**
+     * Builds a synthetic solid-color texture {@code Link} for a flat
+     * {r,g,b} triple (0-1 each) - the exact mechanism the original
+     * BBS-FS-only addon used via {@code LinkUtils.color}: a
+     * {@code Link("color", <hex>)} that BBS's TextureManager turns into a
+     * single-pixel in-memory texture. No file is written. FS handles the
+     * {@code "color"} source natively; {@code TextureManagerMixinBaseCML}
+     * gives Base and CML the same handling.
+     */
+    public static Link colorLink(float[] rgb)
     {
         int r = clampToByte(rgb[0]);
         int g = clampToByte(rgb[1]);
         int b = clampToByte(rgb[2]);
 
-        return (0xFF << 24) | (r << 16) | (g << 8) | b;
+        return new Link("color", Integer.toHexString((0xFF << 24) | (r << 16) | (g << 8) | b));
     }
 
     /** Same folder-convention lookup as {@link #resolveTexture}, but for one specific material by name. */

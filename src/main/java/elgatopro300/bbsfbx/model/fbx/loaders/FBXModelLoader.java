@@ -1,10 +1,12 @@
 package elgatopro300.bbsfbx.model.fbx.loaders;
 
 import elgatopro300.bbsfbx.model.fbx.FBXConverter;
+import elgatopro300.bbsfbx.model.fbx.FBXMesh;
 import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyNames;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
+import mchorse.bbs_mod.bobj.BOBJLoader.BOBJMesh;
 import mchorse.bbs_mod.bobj.BOBJLoader.CompiledData;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.data.animation.Animations;
@@ -21,7 +23,6 @@ import org.lwjgl.assimp.Assimp;
 import java.io.File;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -62,9 +63,14 @@ import java.util.Set;
  * <p>Texture/color: {@link FBXTextureResolverCML} resolves ONE texture for
  * the whole model, exactly like every fork's {@code ModelInstance} texture
  * default. If no texture is found anywhere, any flat Base Color captured off
- * the material is applied straight to {@code ModelInstance.color} (CML only;
- * reflection makes this a no-op on the forks without the field) -- no PNG or
- * folder is ever generated for it.</p>
+ * the material becomes a synthetic solid-color texture {@code Link}
+ * ({@code Link("color", hex)}) -- the exact mechanism the original
+ * BBS-FS-only addon used via {@code LinkUtils.color}. BBS's TextureManager
+ * generates the 1x1 color texture in memory; no PNG or folder is ever
+ * written. FS handles that Link source natively;
+ * {@code TextureManagerMixinBaseCML} gives Base and CML the same handling.
+ * Multi-material models get one such Link per flat-color material through
+ * {@link #resolveMaterialTextures}.</p>
  */
 public class FBXModelLoader implements IModelLoader
 {
@@ -152,7 +158,7 @@ public class FBXModelLoader implements IModelLoader
 
             if (merged.hasMultipleMaterials())
             {
-                resolveMaterialTextures(merged, model, links, models.provider);
+                resolveMaterialTextures(merged, data, model, links, models.provider);
             }
 
             BOBJArmature armature = null;
@@ -177,17 +183,17 @@ public class FBXModelLoader implements IModelLoader
 
             Link textureLink = FBXTextureResolverCML.resolveTexture(data, model, links, models.provider);
 
-            ModelInstance modelInstance = new ModelInstance(id, bobjModel, animations, textureLink);
-
             if (textureLink == null)
             {
                 float[] solidColor = FBXTextureResolverCML.detectSolidColor(data);
 
                 if (solidColor != null)
                 {
-                    applySolidColor(modelInstance, FBXTextureResolverCML.packColor(solidColor));
+                    textureLink = FBXTextureResolverCML.colorLink(solidColor);
                 }
             }
+
+            ModelInstance modelInstance = new ModelInstance(id, bobjModel, animations, textureLink);
 
             modelInstance.applyConfig(config);
             return modelInstance;
@@ -246,11 +252,14 @@ public class FBXModelLoader implements IModelLoader
      * model: a saved user choice (from {@link FBXMaterialTextureConfig})
      * wins if there is one, otherwise falls back to the same
      * {@code textures/<material>/} folder convention the single-texture path
-     * already uses. Leaves an entry null (falls back to the model's default
-     * texture at render time) when neither source has anything for that
-     * material - same "no texture yet" outcome as the single-texture path.
+     * already uses. A material that has neither becomes a synthetic
+     * solid-color texture {@code Link} ({@link
+     * FBXTextureResolverCML#colorLink}) when its FBX material captured a
+     * flat Base Color (the exact mechanism the original BBS-FS-only addon
+     * used via {@code LinkUtils.color}), and stays null otherwise -- falling
+     * back to the model's default texture at render time.
      */
-    private static void resolveMaterialTextures(FBXCompiledData merged, Link model, Collection<Link> links, AssetProvider provider)
+    private static void resolveMaterialTextures(FBXCompiledData merged, BOBJData data, Link model, Collection<Link> links, AssetProvider provider)
     {
         Map<String, Link> saved = FBXMaterialTextureConfig.load(provider, model);
         Link[] textures = new Link[merged.materialNames.length];
@@ -259,33 +268,36 @@ public class FBXModelLoader implements IModelLoader
         {
             String materialName = merged.materialNames[i];
             Link chosen = saved.get(materialName);
+            Link resolved = chosen != null ? chosen : FBXTextureResolverCML.resolveMaterialTexture(materialName, model, links);
 
-            textures[i] = chosen != null ? chosen : FBXTextureResolverCML.resolveMaterialTexture(materialName, model, links);
+            if (resolved == null)
+            {
+                float[] color = findMeshColor(data, materialName);
+
+                if (color != null)
+                {
+                    resolved = FBXTextureResolverCML.colorLink(color);
+                }
+            }
+
+            textures[i] = resolved;
         }
 
         merged.setMaterialTextures(textures);
     }
 
-    /**
-     * {@code ModelInstance.color} only exists on CML - Base's and FS's
-     * {@code ModelInstance} have no stored per-model tint at all (confirmed
-     * directly against the real jars; FS instead passes color in at render
-     * time from the caller, Base likewise). Reflection lets this one loader
-     * class compile and run against all three targets: it applies the flat
-     * Base Color on CML, and is a silent, harmless no-op on the others.
-     */
-    private static void applySolidColor(ModelInstance modelInstance, int packedColor)
+    /** Flat Base Color of the mesh (if any) that carries the given material name, or null. */
+    private static float[] findMeshColor(BOBJData data, String materialName)
     {
-        try
+        for (BOBJMesh mesh : data.meshes)
         {
-            Field colorField = modelInstance.getClass().getField("color");
+            if (mesh instanceof FBXMesh fbxMesh && fbxMesh.color != null && materialName.equals(mesh.name))
+            {
+                return fbxMesh.color;
+            }
+        }
 
-            colorField.setInt(modelInstance, packedColor);
-        }
-        catch (ReflectiveOperationException ignored)
-        {
-            // No "color" field on this fork (e.g. Base or FS) - nothing to apply it to.
-        }
+        return null;
     }
 
     /**
