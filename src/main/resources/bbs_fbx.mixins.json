@@ -14,7 +14,10 @@
     "fs.BOBJModelVAOMixinFS",
     "cml.BOBJModelVAOMixinCML",
     "UIFormPanelAccessorCML",
-    "UIModelFormPanelMixin"
+    "UIModelFormPanelMixin",
+    "ModelFormMixin",
+    "FormRendererAccessor",
+    "ModelFormRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

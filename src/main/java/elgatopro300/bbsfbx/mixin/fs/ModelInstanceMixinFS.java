@@ -76,15 +76,4 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
         return MaterialTextureDelegate.getMaterials(this.model);
     }
 
-    @Override
-    public Link bbsFbx$getMaterialTexture(String material)
-    {
-        return MaterialTextureDelegate.getMaterialTexture(this.model, material);
-    }
-
-    @Override
-    public void bbsFbx$setMaterialTexture(String material, Link link)
-    {
-        MaterialTextureDelegate.setMaterialTexture(this.model, this.id, material, link);
-    }
 }

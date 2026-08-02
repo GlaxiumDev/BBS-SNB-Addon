@@ -2,7 +2,6 @@ package elgatopro300.bbsfbx.mixin.cml;
 
 import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyModelCML;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
-import elgatopro300.bbsfbx.model.fbx.loaders.FBXMaterialTextureConfig;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 import elgatopro300.bbsfbx.model.fbx.loaders.IShapeKeyHolder;
 
@@ -10,7 +9,6 @@ import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.obj.shapes.ShapeKeys;
-import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.colors.Color;
@@ -25,9 +23,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
 import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -99,84 +95,4 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
         return data == null ? Collections.emptyList() : List.of(data.materialNames);
     }
 
-    @Override
-    public Link bbsFbx$getMaterialTexture(String material)
-    {
-        FBXCompiledData data = this.bbsFbx$materialData();
-
-        if (data == null)
-        {
-            return null;
-        }
-
-        int index = bbsFbx$indexOf(data.materialNames, material);
-
-        return index >= 0 && data.materialTextures != null ? data.materialTextures[index] : null;
-    }
-
-    @Override
-    public void bbsFbx$setMaterialTexture(String material, Link link)
-    {
-        FBXCompiledData data = this.bbsFbx$materialData();
-
-        if (data == null)
-        {
-            return;
-        }
-
-        int index = bbsFbx$indexOf(data.materialNames, material);
-
-        if (index < 0)
-        {
-            return;
-        }
-
-        if (data.materialTextures == null)
-        {
-            data.materialTextures = new Link[data.materialNames.length];
-        }
-
-        data.materialTextures[index] = link;
-
-        bbsFbx$persist(data);
-    }
-
-    /**
-     * {@code this.id} is the model's own asset key (same string
-     * {@code ModelManager.loadModel(id)} was called with) - {@code
-     * ModelManager} itself builds the actual model {@code Link} loaders
-     * receive as {@code Link.assets(MODELS_PREFIX + id)}
-     * ({@code ModelManager.loadModel}, confirmed directly), which is
-     * reproduced here so the sidecar file ends up at the exact same path
-     * {@code FBXModelLoaderCML} reads/writes it at.
-     */
-    @Unique
-    private void bbsFbx$persist(FBXCompiledData data)
-    {
-        AssetProvider provider = mchorse.bbs_mod.BBSModClient.getModels().provider;
-        Link model = Link.assets(mchorse.bbs_mod.cubic.model.ModelManager.MODELS_PREFIX + this.id);
-
-        Map<String, Link> all = new LinkedHashMap<>();
-
-        for (int i = 0; i < data.materialNames.length; i++)
-        {
-            all.put(data.materialNames[i], data.materialTextures != null ? data.materialTextures[i] : null);
-        }
-
-        FBXMaterialTextureConfig.save(provider, model, all);
-    }
-
-    @Unique
-    private static int bbsFbx$indexOf(String[] names, String name)
-    {
-        for (int i = 0; i < names.length; i++)
-        {
-            if (names[i].equals(name))
-            {
-                return i;
-            }
-        }
-
-        return -1;
-    }
 }

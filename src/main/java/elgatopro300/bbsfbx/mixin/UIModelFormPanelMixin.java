@@ -1,5 +1,6 @@
 package elgatopro300.bbsfbx.mixin;
 
+import elgatopro300.bbsfbx.model.fbx.loaders.IFormMaterialTextureHolder;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -79,6 +80,19 @@ import java.util.function.Supplier;
  * still needed at the one place ({@link #bbsFbx$modelForm}) that actually
  * needs {@code ModelForm}-specific members ({@code .texture}).</p>
  *
+ * <p><b>Reading/writing the chosen texture per material goes through
+ * {@link IFormMaterialTextureHolder} on the {@code ModelForm} now, not
+ * {@link IMaterialTextureHolder} on the shared {@code ModelInstance}.</b>
+ * The model/mesh objects {@code ModelFormRenderer.getModel(form)} returns
+ * are cached globally by BBS, keyed by model file path - shared by every
+ * Form (and every morph) pointing at the same file. Writing the choice
+ * there, as the first version of this feature did, meant picking a texture
+ * for one Form's material changed it for every other placed copy and every
+ * morph too. {@code IMaterialTextureHolder} on {@code ModelInstance} is
+ * still used for exactly one thing now: {@code bbsFbx$getMaterials()}, the
+ * material NAME list, which genuinely is model-structural (every Form using
+ * this file has the same material slots) rather than per-Form.</p>
+ *
  * <p>{@code UITexturePicker.withFormPreview(Supplier<Form>)} does not exist
  * at all on base BBS (confirmed directly against mchorse/bbs-mod's real
  * source) - it's a CML-only addition, unlike everything else this class
@@ -147,8 +161,9 @@ public abstract class UIModelFormPanelMixin
     @Unique
     private void bbsFbx$openPickerForMaterial(ModelInstance model, String material)
     {
-        IMaterialTextureHolder holder = model instanceof IMaterialTextureHolder h ? h : null;
-        Link link = holder != null ? holder.bbsFbx$getMaterialTexture(material) : null;
+        ModelForm modelForm = this.bbsFbx$modelForm();
+        IFormMaterialTextureHolder formHolder = (IFormMaterialTextureHolder) modelForm;
+        Link link = formHolder.bbsFbx$getMaterialTextureOverrides().get(material);
 
         if (link == null && model != null)
         {
@@ -156,12 +171,7 @@ public abstract class UIModelFormPanelMixin
         }
 
         UITexturePicker picker = UITexturePicker.open(this.bbsFbx$getContext(), link, (l) ->
-        {
-            if (holder != null)
-            {
-                holder.bbsFbx$setMaterialTexture(material, l);
-            }
-        });
+                formHolder.bbsFbx$setMaterialTextureOverride(material, l));
 
         if (picker != null)
         {

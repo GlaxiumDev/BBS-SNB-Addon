@@ -1,5 +1,6 @@
 package elgatopro300.bbsfbx.mixin.fs;
 
+import elgatopro300.bbsfbx.render.CurrentMaterialTextureOverrides;
 import elgatopro300.bbsfbx.render.MultiMaterialTriangleDraw;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
 
@@ -110,11 +111,11 @@ public abstract class BOBJModelVAOMixinFS
         if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
 
         String[] materialNames = fbxData.materialNames;
-        Link[] materialTextures = fbxData.materialTextures;
+        java.util.Map<String, Link> overrides = CurrentMaterialTextureOverrides.current();
 
         for (int m = 0; m < materialNames.length; m++)
         {
-            Link texture = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
+            Link texture = overrides.get(materialNames[m]);
 
             if (texture != null)
             {
