@@ -6,6 +6,7 @@
   "client": [
     "ModelManagerMixin",
     "ImportersMixin",
+    "BOBJModelMixin",
     "BOBJModelVAOMixin",
     "base.ModelInstanceMixinBase",
     "fs.ModelInstanceMixinFS",
@@ -18,7 +19,9 @@
     "ModelFormMixin",
     "FormRendererAccessor",
     "base.ModelFormRendererMixinBase",
-    "cml.ModelFormRendererMixinCML"
+    "fs.ModelFormRendererMixinFS",
+    "cml.ModelFormRendererMixinCML",
+    "cml.BOBJModelCopyMixin"
   ],
   "injectors": {
     "defaultRequire": 1

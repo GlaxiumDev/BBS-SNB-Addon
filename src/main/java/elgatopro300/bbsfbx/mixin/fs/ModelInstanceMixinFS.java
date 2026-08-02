@@ -1,5 +1,7 @@
 package elgatopro300.bbsfbx.mixin.fs;
 
+import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
+import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 import elgatopro300.bbsfbx.model.fbx.loaders.IShapeKeyHolder;
 import elgatopro300.bbsfbx.render.MaterialTextureDelegate;
@@ -18,9 +20,12 @@ import net.minecraft.client.util.math.MatrixStack;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -39,18 +44,65 @@ import java.util.function.Supplier;
  *
  * <p>Also implements {@link IMaterialTextureHolder}, same as
  * {@code ModelInstanceMixinBase} and for the same reason (see its doc
- * comment). One caveat specific to FS, spelled out in
- * {@link MaterialTextureDelegate}'s own doc comment: this addon doesn't have
- * an FS-shaped ({@code List<CompiledData>}-per-mesh) FBX model loader yet,
- * so on FS this is correctly wired up but will keep reporting zero materials
- * -- and the "pick texture" button will keep falling back to the plain
- * single-texture picker -- until that loader gap is closed.</p>
+ * comment).</p>
+ *
+ * <p><b>Seed for the film editor's per-material texture keyframes.</b> FS's
+ * film editor creates one keyframe sheet per material via its native
+ * {@code UIReplaysEditorUtils.addMaterialTextureSheets}, which iterates
+ * {@code ModelInstance.materials} (native BOBJ models get theirs filled in
+ * by {@code BOBJModelLoader}). {@code BOBJModel} doesn't do that, so the
+ * constructor injection below fills both {@code materials} and
+ * {@code materialTextures} straight from the FBX data instead, for
+ * multi-material FBX models only. Those two fields are public on FS's
+ * {@code ModelInstance} but absent on Base/CML -- hence the {@code @Shadow}
+ * declarations (which compile against any one fork's jar) plus this mixin
+ * being gated to FS by {@code BBSFbxMixinPlugin}.</p>
  */
 @Mixin(value = ModelInstance.class, remap = false)
 public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
 {
     @Shadow public IModel model;
     @Shadow public String id;
+    @Shadow public List<String> materials;
+    @Shadow public Map<String, Link> materialTextures;
+
+    /**
+     * Fills {@code materials}/{@code materialTextures} from the FBX data the
+     * way {@code BOBJModelLoader} fills them from {@code BOBJData.meshes}.
+     * Runs after the constructor already allocated the (empty) collections.
+     * Only multi-material FBX models are touched -- single-material and
+     * non-FBX models keep whatever the constructor left.
+     */
+    @Inject(method = "<init>", at = @At("RETURN"), remap = false)
+    private void bbsFbx$seedFbxMaterials(CallbackInfo info)
+    {
+        if (!(this.model instanceof IFbxModel fbxModel))
+        {
+            return;
+        }
+
+        FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
+
+        if (data == null || !data.hasMultipleMaterials())
+        {
+            return;
+        }
+
+        this.materials.addAll(List.of(data.materialNames));
+
+        if (data.materialTextures != null)
+        {
+            for (int i = 0; i < data.materialNames.length && i < data.materialTextures.length; i++)
+            {
+                Link texture = data.materialTextures[i];
+
+                if (texture != null)
+                {
+                    this.materialTextures.put(data.materialNames[i], texture);
+                }
+            }
+        }
+    }
 
     @Redirect(
             method = "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",

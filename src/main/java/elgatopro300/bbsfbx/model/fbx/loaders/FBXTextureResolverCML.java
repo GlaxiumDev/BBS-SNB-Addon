@@ -10,9 +10,12 @@ import mchorse.bbs_mod.resources.Link;
 import java.util.Collection;
 
 /**
- * CML-target texture/color resolution for the whole model (single texture,
- * no per-material split - matches how BBS FS's own {@code ModelForm} is
- * used: one {@code texture} Link, one {@code color} tint).
+ * Texture/color resolution for the whole model (single texture, no
+ * per-material split - matches how every fork's {@code ModelInstance} is
+ * used: one texture {@code Link}, one {@code color} tint). Shared by all
+ * three forks -- despite the "CML" class name, which predates this loader
+ * becoming the fork-agnostic {@link FBXModelLoader}'s single resolver and
+ * was kept rather than churn a rename.
  *
  * <p>Resolution order, checked once for the model as a whole:
  * <ol>

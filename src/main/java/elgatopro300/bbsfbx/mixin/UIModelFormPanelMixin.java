@@ -24,6 +24,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.function.Supplier;
@@ -147,7 +148,7 @@ public abstract class UIModelFormPanelMixin
 
         if (model != null && link == null)
         {
-            link = model.texture;
+            link = bbsFbx$modelDefaultTexture(model);
         }
 
         UITexturePicker picker = UITexturePicker.open(this.bbsFbx$getContext(), link, (l) -> modelForm.texture.set(l));
@@ -172,7 +173,7 @@ public abstract class UIModelFormPanelMixin
 
         if (link == null && model != null)
         {
-            link = model.texture;
+            link = bbsFbx$modelDefaultTexture(model);
         }
 
         UITexturePicker picker = UITexturePicker.open(this.bbsFbx$getContext(), link, (l) ->
@@ -188,6 +189,49 @@ public abstract class UIModelFormPanelMixin
     private UIContext bbsFbx$getContext()
     {
         return ((UIElement) (Object) this).getContext();
+    }
+
+    /**
+     * The model's default texture, across the fork-divergent storage: FS's
+     * {@code ModelInstance} has no {@code texture} field (it keeps the link
+     * in a private field read via {@code getTexture()}), Base/CML keep it in
+     * a public {@code texture} field. Reflective so this one mixin compiles
+     * against any single fork's jar.
+     */
+    @Unique
+    private static Link bbsFbx$modelDefaultTexture(ModelInstance model)
+    {
+        try
+        {
+            Method getTexture = ModelInstance.class.getMethod("getTexture");
+            Object result = getTexture.invoke(model);
+
+            if (result instanceof Link link)
+            {
+                return link;
+            }
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            // No getTexture() on this fork (Base/CML) - fall through to the field.
+        }
+
+        try
+        {
+            Field texture = ModelInstance.class.getField("texture");
+            Object result = texture.get(model);
+
+            if (result instanceof Link link)
+            {
+                return link;
+            }
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            // No public texture field on this fork (FS) - nothing more to try.
+        }
+
+        return null;
     }
 
     /**

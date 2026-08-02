@@ -13,6 +13,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -87,7 +88,7 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
         }
     }
 
-    /** Parsed straight from {@link #bbsFbx$materialTextures} each call - cheap enough (a handful of materials, called once per render), and avoids a second source of truth to keep in sync. */
+    /** Parsed straight from {@link #bbsFbx$materialTextures} each call - cheap enough (a handful of materials, called once per render), and avoids a second source of truth to keep in sync. On FS, the native film editor's per-material keyframes write into {@code ModelForm.materialTextureOverrides} (see {@link #bbsFbx$mergeNativeOverrides}) and those are merged in on top. */
     @Override
     @Unique
     public Map<String, Link> bbsFbx$getMaterialTextureOverrides()
@@ -95,38 +96,89 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
         Map<String, Link> result = new LinkedHashMap<>();
         String raw = (String) this.bbsFbx$materialTextures.get();
 
-        if (raw == null || raw.isEmpty())
+        if (raw != null && !raw.isEmpty())
         {
-            return result;
+            for (String line : raw.split("\n"))
+            {
+                line = line.trim();
+
+                if (line.isEmpty())
+                {
+                    continue;
+                }
+
+                int eq = line.indexOf('=');
+
+                if (eq <= 0)
+                {
+                    continue;
+                }
+
+                String material = line.substring(0, eq);
+                Link link = bbsFbx$parseLink(line.substring(eq + 1));
+
+                if (link != null)
+                {
+                    result.put(material, link);
+                }
+            }
         }
 
-        for (String line : raw.split("\n"))
-        {
-            line = line.trim();
-
-            if (line.isEmpty())
-            {
-                continue;
-            }
-
-            int eq = line.indexOf('=');
-
-            if (eq <= 0)
-            {
-                continue;
-            }
-
-            String material = line.substring(0, eq);
-            Link link = bbsFbx$parseLink(line.substring(eq + 1));
-
-            if (link != null)
-            {
-                result.put(material, link);
-            }
-        }
+        bbsFbx$mergeNativeOverrides(result);
 
         return result;
     }
+
+    /**
+     * FS's film editor keyframes each material's texture into the native
+     * {@code ModelForm.materialTextureOverrides} map (its
+     * {@code FormProperties.applyProperty} writes there directly) -- a field
+     * that only exists on the FS fork, so it's reached reflectively to keep
+     * this fork-agnostic mixin compiling against Base/CML jars. Merged over
+     * this Form's persisted ValueString overrides: the film's per-tick,
+     * time-based keyframes are the authoritative source while they're
+     * playing, and the static picker-menu choice is the fallback either side
+     * of them (or on the forks without the map). Every consumer -- the
+     * render push in {@code ModelFormRendererMixin*} and the picker menu in
+     * {@code UIModelFormPanelMixin} -- reads the merged result.
+     */
+    @Unique
+    private void bbsFbx$mergeNativeOverrides(Map<String, Link> result)
+    {
+        if (bbsFbx$materialTextureOverridesField == null)
+        {
+            try
+            {
+                bbsFbx$materialTextureOverridesField = ModelForm.class.getField("materialTextureOverrides");
+            }
+            catch (NoSuchFieldException ignored)
+            {
+                // Base/CML have no native material-texture override map - nothing to merge.
+                return;
+            }
+        }
+
+        try
+        {
+            if (bbsFbx$materialTextureOverridesField.get(this) instanceof Map<?, ?> nativeOverrides)
+            {
+                for (Map.Entry<?, ?> entry : nativeOverrides.entrySet())
+                {
+                    if (entry.getKey() instanceof String material && entry.getValue() instanceof Link link)
+                    {
+                        result.put(material, link);
+                    }
+                }
+            }
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            // Field disappeared on this fork - ValueString overrides still apply.
+        }
+    }
+
+    @Unique
+    private static Field bbsFbx$materialTextureOverridesField;
 
     /** Assigns (or clears, with a null link) this Form's texture override for one material, persisting into {@link #bbsFbx$materialTextures}. */
     @Override

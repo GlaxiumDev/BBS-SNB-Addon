@@ -2,7 +2,7 @@ package elgatopro300.bbsfbx.mixin;
 
 import elgatopro300.bbsfbx.BBSFbxAddon;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoadCache;
-import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoaderCML;
+import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoader;
 
 import mchorse.bbs_mod.cubic.model.ModelManager;
 import mchorse.bbs_mod.resources.Link;
@@ -35,8 +35,8 @@ public class ModelManagerMixin
     private void bbsFbx$registerFbxLoader(CallbackInfo info)
     {
         ModelManager manager = (ModelManager) (Object) this;
-        manager.loaders.add(new FBXModelLoaderCML());
-        BBSFbxAddon.LOGGER.info("FBX model loader (CML target) registered");
+        manager.loaders.add(new FBXModelLoader());
+        BBSFbxAddon.LOGGER.info("FBX model loader registered");
     }
 
     @Inject(method = "isRelodable", at = @At("HEAD"), cancellable = true, remap = false)

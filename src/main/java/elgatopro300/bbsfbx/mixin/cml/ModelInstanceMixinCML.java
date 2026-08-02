@@ -1,7 +1,7 @@
 package elgatopro300.bbsfbx.mixin.cml;
 
-import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyModelCML;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
+import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 import elgatopro300.bbsfbx.model.fbx.loaders.IShapeKeyHolder;
 
@@ -77,11 +77,14 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     @Unique
     private FBXCompiledData bbsFbx$materialData()
     {
-        if (this.model instanceof FBXShapeKeyModelCML fbxModel
-                && fbxModel.getMeshData() instanceof FBXCompiledData data
-                && data.hasMultipleMaterials())
+        if (this.model instanceof IFbxModel fbxModel)
         {
-            return data;
+            FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
+
+            if (data != null && data.hasMultipleMaterials())
+            {
+                return data;
+            }
         }
 
         return null;

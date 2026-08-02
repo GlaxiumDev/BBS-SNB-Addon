@@ -1,7 +1,7 @@
 package elgatopro300.bbsfbx.render;
 
-import elgatopro300.bbsfbx.model.fbx.FBXShapeKeyModelCML;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
+import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.resources.Link;
@@ -32,7 +32,7 @@ import java.util.List;
  * <p><b>{@link #getDefaultMaterialTexture} is a DIFFERENT thing, and was
  * cut from this class by mistake in that same pass</b> -- it's a pure
  * read, of the material's own resolved {@code textures/<material>/} folder
- * default computed once at load time by {@code FBXModelLoaderCML} and
+ * default computed once at load time by {@code FBXModelLoader} and
  * stored on {@code FBXCompiledData.materialTextures}. That data is exactly
  * as safe to share as the material NAME list already was (every Form using
  * this model file sees the same resolved default, same as they'd see the
@@ -45,18 +45,11 @@ import java.util.List;
  * resolved one -- the flat, textureless/grey rendering this reintroduces
  * the fix for.</p>
  *
- * <p>Checks against {@link FBXShapeKeyModelCML} specifically, which -- despite
- * the name -- is confirmed shared between Base and CML (see that class's own
- * doc comment: {@code BOBJModel}'s constructor is identical on both). It is
- * NOT what BBS FS's own FBX models actually load as, since FS needs its own
- * separate {@code List<CompiledData>}-shaped model loader that doesn't exist
- * in this addon yet (tracked in {@code MIGRATION.md}). So calling this from
- * {@code ModelInstanceMixinFS} is technically wired up and harmless, but
- * won't actually show multi-material buttons on FS until that loader gap is
- * closed -- the model will just never be an {@code FBXShapeKeyModelCML}
- * there yet, so {@link #getMaterials} returns empty and the picker falls
- * back to the ordinary single-texture button, same as any single-material
- * model.</p>
+ * <p>Checks against {@link IFbxModel} specifically -- the mixin interface
+ * {@code BOBJModelMixin} adds to {@code BOBJModel} on every fork, so this
+ * works identically for Base, FS and CML now that the FBX model is a plain
+ * {@code BOBJModel} (the old per-fork {@code FBXShapeKeyModel} subclasses
+ * are gone -- see {@code BOBJModelMixin}'s doc comment).</p>
  */
 public final class MaterialTextureDelegate
 {
@@ -64,11 +57,14 @@ public final class MaterialTextureDelegate
 
     private static FBXCompiledData materialData(IModel model)
     {
-        if (model instanceof FBXShapeKeyModelCML fbxModel
-                && fbxModel.getMeshData() instanceof FBXCompiledData data
-                && data.hasMultipleMaterials())
+        if (model instanceof IFbxModel fbxModel)
         {
-            return data;
+            FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
+
+            if (data != null && data.hasMultipleMaterials())
+            {
+                return data;
+            }
         }
 
         return null;
