@@ -17,7 +17,8 @@
     "UIModelFormPanelMixin",
     "ModelFormMixin",
     "FormRendererAccessor",
-    "ModelFormRendererMixin"
+    "base.ModelFormRendererMixinBase",
+    "cml.ModelFormRendererMixinCML"
   ],
   "injectors": {
     "defaultRequire": 1
