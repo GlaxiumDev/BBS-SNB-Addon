@@ -4,6 +4,7 @@ import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
 import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 import elgatopro300.bbsfbx.model.fbx.loaders.IShapeKeyHolder;
+import elgatopro300.bbsfbx.render.MaterialTextureDelegate;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -22,7 +23,6 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.function.Supplier;
 
@@ -95,7 +95,14 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     {
         FBXCompiledData data = this.bbsFbx$materialData();
 
-        return data == null ? Collections.emptyList() : List.of(data.materialNames);
+        if (data != null)
+        {
+            return List.of(data.materialNames);
+        }
+
+        /* OBJ models are native cubic models now (no FBX data) -- their
+         * per-material data lives on the cubic Model (ModelMixin). */
+        return MaterialTextureDelegate.getMaterials(this.model);
     }
 
     @Override
@@ -103,22 +110,22 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     {
         FBXCompiledData data = this.bbsFbx$materialData();
 
-        if (data == null)
+        if (data != null)
         {
+            String[] names = data.materialNames;
+
+            for (int i = 0; i < names.length; i++)
+            {
+                if (names[i].equals(material))
+                {
+                    return data.materialTextures != null && i < data.materialTextures.length ? data.materialTextures[i] : null;
+                }
+            }
+
             return null;
         }
 
-        String[] names = data.materialNames;
-
-        for (int i = 0; i < names.length; i++)
-        {
-            if (names[i].equals(material))
-            {
-                return data.materialTextures != null && i < data.materialTextures.length ? data.materialTextures[i] : null;
-            }
-        }
-
-        return null;
+        return MaterialTextureDelegate.getDefaultMaterialTexture(this.model, material);
     }
 
 }

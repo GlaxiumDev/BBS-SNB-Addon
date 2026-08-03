@@ -1,19 +1,16 @@
 package elgatopro300.bbsfbx.mixin.basecml;
 
-import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXMaterialTextureConfig;
-import elgatopro300.bbsfbx.model.fbx.loaders.FBXMeshCompiler;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoader;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXTextureResolverCML;
-import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
-import elgatopro300.bbsfbx.model.obj.OBJToBOBJConverter;
+import elgatopro300.bbsfbx.model.fbx.loaders.IModelMaterialTextures;
 
-import mchorse.bbs_mod.bobj.BOBJArmature;
-import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.data.animation.Animations;
+import mchorse.bbs_mod.cubic.data.model.Model;
+import mchorse.bbs_mod.cubic.data.model.ModelGroup;
+import mchorse.bbs_mod.cubic.data.model.ModelMesh;
 import mchorse.bbs_mod.cubic.model.ModelManager;
-import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.cubic.model.loaders.CubicModelLoader;
 import mchorse.bbs_mod.cubic.model.loaders.IModelLoader;
 import mchorse.bbs_mod.data.types.MapType;
@@ -31,8 +28,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,18 +39,27 @@ import java.util.Map;
  * Base/CML fix for native {@code CubicModelLoader.load}, which bakes every
  * OBJ material into a single {@code baked.png} atlas (one texture for the
  * whole model). This intercepts pure-OBJ models (no {@code model.bbs.json}
- * skeleton to merge) and routes them through the addon's per-material
- * pipeline instead: {@code OBJParser} -> {@link OBJToBOBJConverter} (one
- * {@code BOBJMesh} per OBJ material) -> the same {@code FBXCompiledData} +
- * {@code BOBJModel} path FBX models use, so the Base/CML VAO split issues one
- * draw call per material and the per-material texture picker / film-editor
- * sheets apply to OBJ models too.
+ * skeleton to merge) and loads them as a NATIVE cubic model -- no BOBJ
+ * conversion, no dummy armature, no bones -- with one {@code ModelGroup} per
+ * OBJ material, mirroring how BBS FS's own OBJ loader works.
  *
- * <p>Texture resolution per material, matching BBS FS's native OBJ loader: a
+ * <p>The group name IS the material name, so the per-material texture
+ * resolution used by the FBX path carries straight over: the group's
+ * texture is bound at draw time by {@code CubicVAORendererMixinBase} /
+ * {@code CubicVAORendererMixinCML} (per-Form override first, via
+ * {@code CurrentMaterialTextureOverrides}, then the material's loaded
+ * default). The per-material defaults themselves live on the cubic
+ * {@code Model} ({@link IModelMaterialTextures}), which is what makes the
+ * material picker, film-editor material sheets and form properties all work
+ * unchanged for OBJ models.</p>
+ *
+ * <p>Per-material default resolution, matching BBS FS's native OBJ loader: a
  * saved per-material pick ({@link FBXMaterialTextureConfig}), else the
  * material's own MTL {@code map_Kd} texture link, else the
  * {@code textures/<material>/} folder convention, else the material's flat Kd
- * color (the folder is created on disk for a PNG to be dropped in later).</p>
+ * color (the folder is created on disk for a PNG to be dropped in later).
+ * UVs stay normalized (model texture is 1x1), so each material's own texture
+ * tiles its own UV space.</p>
  *
  * <p>Models that combine a {@code .obj} with a {@code .bbs.json} keep their
  * native cubic-skeleton rendering (single atlas), as do OBJ-less models --
@@ -125,32 +133,54 @@ public abstract class CubicModelLoaderMixinBaseCML
                 }
             }
 
-            BOBJData bobjData = OBJToBOBJConverter.convert(compile);
+            /* One ModelGroup per OBJ material. The group id IS the material
+             * name, which is what lets the renderers bind per-material
+             * textures and lets the picker / film editor identify materials. */
+            Map<String, List<MeshOBJ>> byMaterial = new LinkedHashMap<>();
 
-            if (bobjData.meshes.isEmpty())
+            for (MeshesOBJ value : compile.values())
+            {
+                for (MeshOBJ mesh : value.meshes)
+                {
+                    String name = mesh.material != null && mesh.material.name != null && !mesh.material.name.isEmpty()
+                            ? mesh.material.name : "Default";
+
+                    byMaterial.computeIfAbsent(name, k -> new ArrayList<>()).add(mesh);
+                }
+            }
+
+            if (byMaterial.isEmpty())
             {
                 cir.setReturnValue(null);
                 return;
             }
 
-            bobjData.initiateArmatures();
+            Model theModel = new Model(models.parser);
+            theModel.textureWidth = 1;
+            theModel.textureHeight = 1;
 
-            FBXCompiledData merged = FBXMeshCompiler.compileMergedWithMaterials(bobjData);
-
-            if (merged.materialNames != null && merged.materialNames.length > 0)
+            for (Map.Entry<String, List<MeshOBJ>> entry : byMaterial.entrySet())
             {
-                resolveObjMaterialTextures(merged, compile, model, links, models.provider);
+                ModelGroup group = new ModelGroup(entry.getKey());
+                theModel.topGroups.add(group);
+
+                for (MeshOBJ mesh : entry.getValue())
+                {
+                    ModelMesh modelMesh = new ModelMesh();
+                    modelMesh.baseData.fill(mesh, theModel.textureWidth, theModel.textureHeight);
+                    group.meshes.add(modelMesh);
+                }
             }
 
-            BOBJArmature armature = bobjData.armatures.values().iterator().next();
-            BOBJModel bobjModel = FBXModelLoader.createModel(armature, merged);
+            theModel.initialize();
 
-            IFbxModel fbxModel = (IFbxModel) bobjModel;
-            fbxModel.bbsFbx$setFbxData(merged);
-            fbxModel.bbsFbx$setShapeKeyNames(null);
+            List<String> materialNames = List.copyOf(byMaterial.keySet());
+            Map<String, Link> materialTextures = resolveObjMaterialTextures(
+                    materialNames, compile, model, links, models.provider);
 
-            ModelInstance instance = new ModelInstance(
-                    id, bobjModel, new Animations(models.parser), modelTexture);
+            ((IModelMaterialTextures) theModel).bbsFbx$setMaterialTextures(materialNames, materialTextures);
+
+            ModelInstance instance = new ModelInstance(id, theModel, new Animations(models.parser), modelTexture);
 
             instance.applyConfig(config);
             cir.setReturnValue(instance);
@@ -183,13 +213,12 @@ public abstract class CubicModelLoaderMixinBaseCML
     }
 
     /**
-     * Per-material texture resolution for OBJ models -- see the class doc for
-     * the order. Names are the OBJ material names carried by the meshes, the
-     * same names {@code FBXMeshCompiler} recorded into
-     * {@code merged.materialNames}.
+     * Per-material default texture resolution for OBJ models -- see the class
+     * doc for the order. Keys are the OBJ material names the groups were
+     * built from.
      */
-    private static void resolveObjMaterialTextures(
-            FBXCompiledData merged, Map<String, MeshesOBJ> compile,
+    private static Map<String, Link> resolveObjMaterialTextures(
+            List<String> materials, Map<String, MeshesOBJ> compile,
             Link model, Collection<Link> links, AssetProvider provider)
     {
         Map<String, Link> saved = FBXMaterialTextureConfig.load(provider, model);
@@ -206,22 +235,15 @@ public abstract class CubicModelLoaderMixinBaseCML
             }
         }
 
-        Link[] textures = new Link[merged.materialNames.length];
+        Map<String, Link> result = new LinkedHashMap<>();
 
-        for (int i = 0; i < merged.materialNames.length; i++)
+        for (String name : materials)
         {
-            String name = merged.materialNames[i];
-
-            if (name == null || name.isEmpty())
-            {
-                continue;
-            }
-
             Link chosen = saved.get(name);
 
             if (chosen != null)
             {
-                textures[i] = chosen;
+                result.put(name, chosen);
                 continue;
             }
 
@@ -243,17 +265,13 @@ public abstract class CubicModelLoaderMixinBaseCML
                 resolved = FBXTextureResolverCML.colorLink(new float[] { material.r, material.g, material.b });
             }
 
-            if (resolved != null)
+            if (resolved == null)
             {
-                textures[i] = resolved;
-            }
-            else
-            {
-                /* Never leave a material unbound (the raw-GL per-material loop
-                 * would otherwise draw it with whatever texture happened to be
-                 * bound before) -- same fallback as BBS FS's native OBJ loader:
-                 * surface an empty textures/<material>/ folder on disk and bind
-                 * the material's flat Kd color meanwhile. */
+                /* Never leave a material unbound (the per-group draw would
+                 * otherwise show it with whatever texture happened to be
+                 * bound before) -- same fallback as BBS FS's native OBJ
+                 * loader: surface an empty textures/<material>/ folder on
+                 * disk and bind the material's flat Kd color meanwhile. */
                 FBXModelLoader.ensureMaterialFolder(provider, model, name);
                 float r = 1.0F;
                 float g = 1.0F;
@@ -266,11 +284,13 @@ public abstract class CubicModelLoaderMixinBaseCML
                     b = material.b;
                 }
 
-                textures[i] = FBXTextureResolverCML.colorLink(new float[] { r, g, b });
+                resolved = FBXTextureResolverCML.colorLink(new float[] { r, g, b });
             }
+
+            result.put(name, resolved);
         }
 
-        merged.setMaterialTextures(textures);
+        return result;
     }
 
     /**

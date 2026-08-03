@@ -2,6 +2,7 @@ package elgatopro300.bbsfbx.render;
 
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
 import elgatopro300.bbsfbx.model.fbx.loaders.IFbxModel;
+import elgatopro300.bbsfbx.model.fbx.loaders.IModelMaterialTextures;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -15,6 +16,7 @@ import mchorse.bbs_mod.settings.values.numeric.ValueFloat;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The {@code IMaterialTextureHolder} logic -- material names, and the
@@ -81,7 +83,17 @@ public final class MaterialTextureDelegate
     {
         FBXCompiledData data = materialData(model);
 
-        return data == null ? Collections.emptyList() : List.of(data.materialNames);
+        if (data != null)
+        {
+            return List.of(data.materialNames);
+        }
+
+        if (model instanceof IModelMaterialTextures cubic)
+        {
+            return cubic.bbsFbx$getMaterials();
+        }
+
+        return Collections.emptyList();
     }
 
     /** Materials of the FBX model behind this Form, empty when the Form isn't a multi-material FBX {@code ModelForm}. */
@@ -153,22 +165,27 @@ public final class MaterialTextureDelegate
 
     public static boolean isMaterial(IModel model, String name)
     {
-        FBXCompiledData data = materialData(model);
-
-        if (data == null || name == null)
+        if (name == null)
         {
             return false;
         }
 
-        for (String material : data.materialNames)
+        FBXCompiledData data = materialData(model);
+
+        if (data != null)
         {
-            if (material.equals(name))
+            for (String material : data.materialNames)
             {
-                return true;
+                if (material.equals(name))
+                {
+                    return true;
+                }
             }
+
+            return false;
         }
 
-        return false;
+        return model instanceof IModelMaterialTextures cubic && cubic.bbsFbx$getMaterials().contains(name);
     }
 
     private static IModel getModel(Form form)
@@ -191,16 +208,42 @@ public final class MaterialTextureDelegate
     {
         FBXCompiledData data = materialData(model);
 
-        if (data == null)
+        if (data != null)
         {
-            return null;
+            int index = indexOf(data.materialNames, material);
+
+            return index >= 0 && data.materialTextures != null && index < data.materialTextures.length
+                    ? data.materialTextures[index]
+                    : null;
         }
 
-        int index = indexOf(data.materialNames, material);
+        return model instanceof IModelMaterialTextures cubic ? cubic.bbsFbx$getDefaultMaterialTexture(material) : null;
+    }
 
-        return index >= 0 && data.materialTextures != null && index < data.materialTextures.length
-                ? data.materialTextures[index]
-                : null;
+    /**
+     * The texture one material should be drawn with right now: the current
+     * Form's per-material override ({@link CurrentMaterialTextureOverrides})
+     * if one is set, else the material's shared loaded default. Used by the
+     * cubic-renderer mixins ({@code CubicVAORendererMixinBase},
+     * {@code CubicVAORendererMixinCML}) exactly the way the per-material
+     * {@code BOBJModelVAO} mixins resolve it, so OBJ models render
+     * multi-textured on the native cubic path.
+     */
+    public static Link resolveMaterialTexture(IModel model, String material)
+    {
+        Map<String, Link> overrides = CurrentMaterialTextureOverrides.current();
+
+        if (material != null)
+        {
+            Link override = overrides.get(material);
+
+            if (override != null)
+            {
+                return override;
+            }
+        }
+
+        return getDefaultMaterialTexture(model, material);
     }
 
     /**
