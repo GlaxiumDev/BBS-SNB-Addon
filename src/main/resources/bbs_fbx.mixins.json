@@ -27,6 +27,8 @@
     "basecml.FormUtilsMixin",
     "basecml.FormPropertiesMixin",
     "basecml.TextureManagerMixinBaseCML",
+    "basecml.BOBJModelLoaderMixinBaseCML",
+    "basecml.CubicModelLoaderMixinBaseCML",
     "cml.UIReplaysEditorMixinCML",
     "cml.UIAnimationStateEditorMixinCML"
   ],

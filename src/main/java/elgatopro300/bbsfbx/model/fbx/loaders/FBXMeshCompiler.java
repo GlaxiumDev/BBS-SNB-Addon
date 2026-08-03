@@ -258,6 +258,26 @@ public final class FBXMeshCompiler
      */
     public static FBXCompiledData compileMergedWithMaterials(BOBJData data)
     {
+        return compileMergedWithMaterials(data, false);
+    }
+
+    /**
+     * Like {@link #compileMergedWithMaterials(BOBJData)}, with two options
+     * the FBX path doesn't need but the native-BOBJ path does:
+     * <ul>
+     *   <li><b>{@code flipV}</b>: native BOBJ rendering flips V
+     *       ({@code 1 - y}, see {@code BOBJLoader.processFaceVertex}) because
+     *       BOBJ files author UVs top-left-origin. FBX/OBJ UVs are standard
+     *       bottom-left-origin and must NOT flip -- pass {@code false}.</li>
+     *   <li><b>missing UV/normal/position indices</b>: native
+     *       {@code processFaceVertex} guards {@code idxTextCoord/idxVecNormal
+     *       >= 0} and leaves {@code 0} otherwise. FBX data always has valid
+     *       indices, native BOBJ files can have {@code -1} (e.g. faces with
+     *       no UVs), so this guards too instead of throwing.</li>
+     * </ul>
+     */
+    public static FBXCompiledData compileMergedWithMaterials(BOBJData data, boolean flipV)
+    {
         int totalVertices = 0;
         for (BOBJMesh mesh : data.meshes)
         {
@@ -316,12 +336,36 @@ public final class FBXMeshCompiler
             {
                 for (BOBJLoader.IndexGroup group : face.idxGroups)
                 {
-                    BOBJLoader.Vertex v = data.vertices.get(group.idxPos);
-                    Vector2d t = data.textures.get(group.idxTextCoord);
-                    Vector3f n = data.normals.get(group.idxVecNormal);
+                    BOBJLoader.Vertex v = group.idxPos >= 0 ? data.vertices.get(group.idxPos) : null;
 
-                    pos[pIndex] = v.x; pos[pIndex + 1] = v.y; pos[pIndex + 2] = v.z;
-                    norm[pIndex] = n.x; norm[pIndex + 1] = n.y; norm[pIndex + 2] = n.z;
+                    float tx = 0.0f;
+                    float ty = 0.0f;
+
+                    if (group.idxTextCoord >= 0)
+                    {
+                        Vector2d t = data.textures.get(group.idxTextCoord);
+                        tx = (float) t.x;
+                        ty = flipV ? (float) (1.0 - t.y) : (float) t.y;
+                    }
+
+                    float nx = 0.0f;
+                    float ny = 0.0f;
+                    float nz = 0.0f;
+
+                    if (group.idxVecNormal >= 0)
+                    {
+                        Vector3f n = data.normals.get(group.idxVecNormal);
+                        nx = n.x;
+                        ny = n.y;
+                        nz = n.z;
+                    }
+
+                    float vx = v != null ? v.x : 0.0f;
+                    float vy = v != null ? v.y : 0.0f;
+                    float vz = v != null ? v.z : 0.0f;
+
+                    pos[pIndex] = vx; pos[pIndex + 1] = vy; pos[pIndex + 2] = vz;
+                    norm[pIndex] = nx; norm[pIndex + 1] = ny; norm[pIndex + 2] = nz;
 
                     if (fbxMesh != null && fbxMesh.shapeKeyVertices != null)
                     {
@@ -343,7 +387,7 @@ public final class FBXMeshCompiler
                             }
                             else
                             {
-                                sPos[pIndex] = v.x; sPos[pIndex + 1] = v.y; sPos[pIndex + 2] = v.z;
+                                sPos[pIndex] = vx; sPos[pIndex + 1] = vy; sPos[pIndex + 2] = vz;
                             }
 
                             if (localNormalIndex >= 0 && localNormalIndex < shapeNorms.size())
@@ -353,7 +397,7 @@ public final class FBXMeshCompiler
                             }
                             else
                             {
-                                sNorm[pIndex] = n.x; sNorm[pIndex + 1] = n.y; sNorm[pIndex + 2] = n.z;
+                                sNorm[pIndex] = nx; sNorm[pIndex + 1] = ny; sNorm[pIndex + 2] = nz;
                             }
                         }
                     }
@@ -368,20 +412,22 @@ public final class FBXMeshCompiler
                         if (!touched)
                         {
                             float[] sPos = entry.getValue();
-                            sPos[pIndex] = v.x; sPos[pIndex + 1] = v.y; sPos[pIndex + 2] = v.z;
+                            sPos[pIndex] = vx; sPos[pIndex + 1] = vy; sPos[pIndex + 2] = vz;
                             float[] sNorm = shapeKeyNormalsCompiled.get(entry.getKey());
-                            sNorm[pIndex] = n.x; sNorm[pIndex + 1] = n.y; sNorm[pIndex + 2] = n.z;
+                            sNorm[pIndex] = nx; sNorm[pIndex + 1] = ny; sNorm[pIndex + 2] = nz;
                         }
                     }
 
                     pIndex += 3;
 
-                    tex[tIndex] = (float) t.x; tex[tIndex + 1] = (float) t.y;
+                    tex[tIndex] = tx; tex[tIndex + 1] = ty;
                     tIndex += 2;
 
-                    if (v.weights.isEmpty())
+                    if (v == null || v.weights.isEmpty())
                     {
-                        weights[wIndex] = 1.0f; bones[wIndex] = 0;
+                        boolean hasBones = mesh.armature != null && !mesh.armature.bones.isEmpty();
+                        weights[wIndex] = hasBones ? 1.0f : 0.0f;
+                        bones[wIndex] = hasBones ? 0 : -1;
                         weights[wIndex + 1] = 0.0f; bones[wIndex + 1] = -1;
                         weights[wIndex + 2] = 0.0f; bones[wIndex + 2] = -1;
                         weights[wIndex + 3] = 0.0f; bones[wIndex + 3] = -1;

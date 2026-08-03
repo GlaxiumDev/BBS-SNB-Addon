@@ -218,7 +218,7 @@ public class FBXModelLoader implements IModelLoader
      * by erased types, so this never needs to know which fork it's on and
      * compiles against any one jar.
      */
-    private static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged)
+    public static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged)
     {
         try
         {
@@ -267,7 +267,7 @@ public class FBXModelLoader implements IModelLoader
      * stale null/empty material name is skipped with a cache-corruption
      * warning.
      */
-    private static void resolveMaterialTextures(FBXCompiledData merged, BOBJData data, Link model, Collection<Link> links, AssetProvider provider)
+    public static void resolveMaterialTextures(FBXCompiledData merged, BOBJData data, Link model, Collection<Link> links, AssetProvider provider)
     {
         Map<String, Link> saved = FBXMaterialTextureConfig.load(provider, model);
         Link[] textures = new Link[merged.materialNames.length];
@@ -321,7 +321,7 @@ public class FBXModelLoader implements IModelLoader
      * Only FS's {@code IModelLoader} declares the original, so this addon
      * can't call it directly against Base/CML.
      */
-    private static void ensureMaterialFolder(AssetProvider provider, Link model, String material)
+    public static void ensureMaterialFolder(AssetProvider provider, Link model, String material)
     {
         if (material == null || material.isEmpty())
         {
