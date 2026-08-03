@@ -52,11 +52,13 @@ import java.util.function.Supplier;
  * {@code ModelInstance.materials} (native BOBJ models get theirs filled in
  * by {@code BOBJModelLoader}). {@code BOBJModel} doesn't do that, so the
  * constructor injection below fills both {@code materials} and
- * {@code materialTextures} straight from the FBX data instead, for
- * multi-material FBX models only. Those two fields are public on FS's
- * {@code ModelInstance} but absent on Base/CML -- hence the {@code @Shadow}
- * declarations (which compile against any one fork's jar) plus this mixin
- * being gated to FS by {@code BBSFbxMixinPlugin}.</p>
+ * {@code materialTextures} straight from the FBX data instead, for every
+ * FBX model -- single-material ones included, matching the FS-targeted
+ * sibling addon's {@code FBXTextureResolver.registerMaterials}. Those two
+ * fields are public on FS's {@code ModelInstance} but absent on Base/CML --
+ * hence the {@code @Shadow} declarations (which compile against any one
+ * fork's jar) plus this mixin being gated to FS by
+ * {@code BBSFbxMixinPlugin}.</p>
  */
 @Mixin(value = ModelInstance.class, remap = false)
 public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
@@ -70,8 +72,9 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
      * Fills {@code materials}/{@code materialTextures} from the FBX data the
      * way {@code BOBJModelLoader} fills them from {@code BOBJData.meshes}.
      * Runs after the constructor already allocated the (empty) collections.
-     * Only multi-material FBX models are touched -- single-material and
-     * non-FBX models keep whatever the constructor left.
+     * Every FBX model is touched -- single-material models get their one
+     * material seeded too (the sibling addon's {@code registerMaterials}
+     * behavior); non-FBX models keep whatever the constructor left.
      */
     @Inject(method = "<init>", at = @At("RETURN"), remap = false)
     private void bbsFbx$seedFbxMaterials(CallbackInfo info)
@@ -83,7 +86,7 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
 
         FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
 
-        if (data == null || !data.hasMultipleMaterials())
+        if (data == null || data.materialNames == null || data.materialNames.length == 0)
         {
             return;
         }

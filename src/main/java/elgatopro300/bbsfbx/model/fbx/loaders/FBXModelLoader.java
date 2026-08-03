@@ -69,8 +69,11 @@ import java.util.Set;
  * generates the 1x1 color texture in memory; no PNG or folder is ever
  * written. FS handles that Link source natively;
  * {@code TextureManagerMixinBaseCML} gives Base and CML the same handling.
- * Multi-material models get one such Link per flat-color material through
- * {@link #resolveMaterialTextures}.</p>
+ * Every material of the model gets one such Link per flat-color material
+ * through {@link #resolveMaterialTextures} (single-material models included,
+ * matching the FS-targeted sibling addon); a material with neither a texture
+ * nor a flat color gets its {@code textures/<material>/} folder created
+ * instead, and a stale/empty material name is skipped with a warning.</p>
  */
 public class FBXModelLoader implements IModelLoader
 {
@@ -156,7 +159,7 @@ public class FBXModelLoader implements IModelLoader
 
             FBXCompiledData merged = FBXMeshCompiler.compileMergedWithMaterials(data);
 
-            if (merged.hasMultipleMaterials())
+            if (merged.materialNames != null && merged.materialNames.length > 0)
             {
                 resolveMaterialTextures(merged, data, model, links, models.provider);
             }
@@ -248,16 +251,21 @@ public class FBXModelLoader implements IModelLoader
     }
 
     /**
-     * Fills in {@link FBXCompiledData#materialTextures} for a multi-material
-     * model: a saved user choice (from {@link FBXMaterialTextureConfig})
-     * wins if there is one, otherwise falls back to the same
-     * {@code textures/<material>/} folder convention the single-texture path
-     * already uses. A material that has neither becomes a synthetic
-     * solid-color texture {@code Link} ({@link
+     * Fills in {@link FBXCompiledData#materialTextures} for the model -- any
+     * model, single- or multi-material (the FS film editor's per-material
+     * sheets iterate {@code ModelInstance.materials}, which the FS mixin
+     * seeds from this data even for one-material models). A saved user choice
+     * (from {@link FBXMaterialTextureConfig}) wins if there is one, otherwise
+     * falls back to the same {@code textures/<material>/} folder convention
+     * the single-texture path already uses. A material that has neither
+     * becomes a synthetic solid-color texture {@code Link} ({@link
      * FBXTextureResolverCML#colorLink}) when its FBX material captured a
      * flat Base Color (the exact mechanism the original BBS-FS-only addon
-     * used via {@code LinkUtils.color}), and stays null otherwise -- falling
-     * back to the model's default texture at render time.
+     * used via {@code LinkUtils.color}); one that has neither gets its
+     * {@code textures/<material>/} folder created on disk (matching the
+     * sibling addon's {@code IModelLoader.ensureMaterialFolder}); and a
+     * stale null/empty material name is skipped with a cache-corruption
+     * warning.
      */
     private static void resolveMaterialTextures(FBXCompiledData merged, BOBJData data, Link model, Collection<Link> links, AssetProvider provider)
     {
@@ -267,6 +275,18 @@ public class FBXModelLoader implements IModelLoader
         for (int i = 0; i < merged.materialNames.length; i++)
         {
             String materialName = merged.materialNames[i];
+
+            /* DEFENSIVE: If the cached BOBJData was corrupted (the bug this
+             * addon was built around), mesh names may be null or empty. Log it
+             * so the user knows the cache is returning stale data. */
+            if (materialName == null || materialName.isEmpty())
+            {
+                System.err.println("[BBS FBX] WARNING: Mesh has null/empty material name! "
+                        + "This usually means FBXModelLoadCache returned stale BOBJData. "
+                        + "Press F6 to clear the cache.");
+                continue;
+            }
+
             Link chosen = saved.get(materialName);
             Link resolved = chosen != null ? chosen : FBXTextureResolverCML.resolveMaterialTexture(materialName, model, links);
 
@@ -280,10 +300,40 @@ public class FBXModelLoader implements IModelLoader
                 }
             }
 
-            textures[i] = resolved;
+            if (resolved != null)
+            {
+                textures[i] = resolved;
+            }
+            else
+            {
+                ensureMaterialFolder(provider, model, materialName);
+            }
         }
 
         merged.setMaterialTextures(textures);
+    }
+
+    /**
+     * Fork-agnostic copy of BBS FS's
+     * {@code IModelLoader.ensureMaterialFolder}: creates the model's
+     * {@code textures/<material>/} folder on disk so a texture can be dropped
+     * in for a material that had neither a real texture nor a flat color.
+     * Only FS's {@code IModelLoader} declares the original, so this addon
+     * can't call it directly against Base/CML.
+     */
+    private static void ensureMaterialFolder(AssetProvider provider, Link model, String material)
+    {
+        if (material == null || material.isEmpty())
+        {
+            return;
+        }
+
+        File folder = provider.getFile(model.combine("textures/" + material));
+
+        if (folder != null)
+        {
+            folder.mkdirs();
+        }
     }
 
     /** Flat Base Color of the mesh (if any) that carries the given material name, or null. */
