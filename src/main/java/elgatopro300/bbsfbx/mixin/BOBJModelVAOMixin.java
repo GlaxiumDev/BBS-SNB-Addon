@@ -10,6 +10,7 @@ import mchorse.bbs_mod.obj.shapes.ShapeKeys;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.joml.Matrices;
 
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
@@ -24,6 +25,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Fully replaces {@code BOBJModelVAO.updateMesh} to blend
@@ -79,6 +84,84 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     {
         return current.length == length ? current : new float[length];
     }
+
+    /**
+     * Precomputed per-bone normal (3x3) matrices, reused across the entire
+     * vertex loop for a single {@code updateMesh} call instead of rebuilding
+     * one via {@code Matrices.TEMP_3F.set(matrices[index])} every time a
+     * vertex-weight pair references that bone. There are only
+     * {@code matrices.length} unique bones, but up to {@code count * 4}
+     * vertex-weight pairs - on a high-poly skinned FBX (hundreds of
+     * thousands of vertices, ~100 bones) the old per-weight conversion redid
+     * the same handful of 3x3s hundreds of thousands of times over, every
+     * single frame an animation is actually playing. Building this array
+     * once per call turns that into O(bones) instead of O(vertices).
+     * Allocate-once-reuse-forever, same as the morph scratch buffers above -
+     * only rebuilt (new {@code Matrix3f} instances) when the bone count
+     * itself changes.
+     */
+    private Matrix3f[] bbsFbx$normalMatrices = new Matrix3f[0];
+
+    @Unique
+    private Matrix3f[] bbsFbx$normalMatrixScratch(int boneCount)
+    {
+        if (this.bbsFbx$normalMatrices.length != boneCount)
+        {
+            Matrix3f[] fresh = new Matrix3f[boneCount];
+
+            for (int i = 0; i < boneCount; i++)
+            {
+                fresh[i] = new Matrix3f();
+            }
+
+            this.bbsFbx$normalMatrices = fresh;
+        }
+
+        return this.bbsFbx$normalMatrices;
+    }
+
+    /**
+     * Worker pool the skin loop below splits across when a model is big
+     * enough to make dispatch worth it (see {@link #bbsFbx$PARALLEL_THRESHOLD}).
+     * {@code count - 1} threads, not {@code count}: this runs on the render
+     * thread, which does its own share of the work as "chunk 0" rather than
+     * sitting idle waiting on the pool. Static + shared across every VAO
+     * instance and every model on screen (not one pool per model) since
+     * skinning for different instances already happens one {@code updateMesh}
+     * call at a time on the render thread -- one small fixed pool reused
+     * every call, not spun up and torn down per frame.
+     *
+     * <p>Daemon threads: never blocks JVM shutdown, no explicit teardown
+     * needed. Deliberately NOT touching any GL state -- worker tasks only
+     * ever write into disjoint slices of {@code newVertices}/{@code newNormals}/
+     * {@code tmpLight} (each vertex index is owned by exactly one chunk) and
+     * read {@code matrices}/{@code normalMatrices} (read-only from every
+     * thread once built). The actual {@code glBufferData} calls after the
+     * loop stay on the render thread, same as before -- OpenGL contexts are
+     * thread-bound and none of that is safe to move.</p>
+     */
+    private static final int bbsFbx$WORKER_COUNT = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+
+    private static final ExecutorService bbsFbx$pool = bbsFbx$WORKER_COUNT <= 1 ? null : Executors.newFixedThreadPool(
+            bbsFbx$WORKER_COUNT,
+            r ->
+            {
+                Thread t = new Thread(r, "bbs-fbx-skin-worker");
+                t.setDaemon(true);
+                return t;
+            });
+
+    /**
+     * Below this vertex count the loop just runs single-threaded on the
+     * render thread, same as before this change -- splitting work across
+     * threads costs a fixed amount of dispatch/join overhead no matter how
+     * small the job is, and for a handful of thousand vertices that
+     * overhead is bigger than the loop itself. 20,000 is comfortably above
+     * typical prop/character meshes (where the old single-threaded path is
+     * already sub-millisecond) and comfortably below where a high-poly FBX
+     * (hundreds of thousands of vertices) actually saturates a core.
+     */
+    private static final int bbsFbx$PARALLEL_THRESHOLD = 20_000;
 
     /**
      * Pose cache: skips the entire per-frame CPU skinning + GL re-upload when
@@ -190,17 +273,32 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     }
 
     // ---------------------------------------------------------------
-    // Shape keys
+    // Skinning (shape keys + per-bone normal-matrix cache)
     // ---------------------------------------------------------------
 
+    /**
+     * Was shape-key-only ({@code bbsFbx$updateMeshWithShapeKeys}): it took
+     * over from the host's {@code updateMesh} only when shape keys were
+     * active, so any ordinarily-animated model (armature playing, no shape
+     * keys) fell through to the host's own copy of this exact loop every
+     * single frame -- including the host's per-vertex-weight
+     * {@code Matrices.TEMP_3F.set(matrices[index])} normal-matrix rebuild
+     * (see {@link #bbsFbx$normalMatrices} doc). Now takes over unconditionally
+     * for any real pose change (the pose cache above still short-circuits
+     * unchanged frames exactly as before), so every animated model gets the
+     * bone-matrix cache, not just shape-keyed ones. The shape-key blend
+     * itself is untouched and still only runs when active.
+     */
     @Inject(method = "updateMesh", at = @At("HEAD"), cancellable = true, remap = false)
-    private void bbsFbx$updateMeshWithShapeKeys(StencilMap stencilMap, CallbackInfo info)
+    private void bbsFbx$updateMeshOptimized(StencilMap stencilMap, CallbackInfo info)
     {
         /* Pose cache: skip skinning + upload entirely when the pose hasn't
          * changed since the last call (static props pay O(bones) instead of
          * O(vertices)). Shape-keyed models bypass the cache -- their blend
          * output depends on the per-frame key weights. */
-        boolean shapeKeysActive = this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty();
+        boolean shapeKeysActive = this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty()
+                && this.data instanceof FBXCompiledData fbxCheck
+                && fbxCheck.shapeKeyVertices != null && !fbxCheck.shapeKeyVertices.isEmpty();
 
         boolean unchanged = this.bbsFbx$poseUnchanged(stencilMap);
 
@@ -232,17 +330,15 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             return;
         }
 
-        if (!(this.data instanceof FBXCompiledData fbxData) || fbxData.shapeKeyVertices == null || fbxData.shapeKeyVertices.isEmpty())
-        {
-            return;
-        }
-
+        /* From here on this always takes over the skin -- not just for
+         * shape-keyed models. This is the exact same skinning/lighting math
+         * the host's own updateMesh runs (see class doc); the shape-key
+         * blend below is skipped entirely when inactive (same as the host
+         * never doing it), and the per-bone normal-matrix cache is the only
+         * real behavioral difference from the host's loop -- it changes
+         * nothing about the output, just how many times the same handful of
+         * 3x3s get built. */
         info.cancel();
-
-        Vector4f sum = new Vector4f();
-        Vector4f result = new Vector4f(0F, 0F, 0F, 0F);
-        Vector3f sumNormal = new Vector3f();
-        Vector3f resultNormal = new Vector3f();
 
         float[] oldVertices = this.data.posData;
         float[] oldNormals = this.data.normData;
@@ -250,8 +346,10 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         float[] morphedVertices = oldVertices;
         float[] morphedNormals = oldNormals;
 
-        if (this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty())
+        if (shapeKeysActive)
         {
+            FBXCompiledData fbxData = (FBXCompiledData) this.data;
+
             this.bbsFbx$morphedVertices = this.bbsFbx$morphScratch(this.bbsFbx$morphedVertices, oldVertices.length);
             morphedVertices = this.bbsFbx$morphedVertices;
             System.arraycopy(oldVertices, 0, morphedVertices, 0, oldVertices.length);
@@ -290,10 +388,165 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             }
         }
 
+        /* Per-bone normal-matrix cache: build all matrices.length 3x3s once
+         * up front instead of once per vertex-weight pair inside the loop
+         * below (see field doc on bbsFbx$normalMatrices). */
+        Matrix3f[] normalMatrices = this.bbsFbx$normalMatrixScratch(matrices.length);
+
+        for (int b = 0; b < matrices.length; b++)
+        {
+            normalMatrices[b].set(matrices[b]);
+        }
+
         float[] newVertices = this.tmpVertices;
         float[] newNormals = this.tmpNormals;
 
-        for (int i = 0, c = this.count; i < c; i++)
+        int vertexCount = this.count;
+
+        if (bbsFbx$pool != null && vertexCount >= bbsFbx$PARALLEL_THRESHOLD)
+        {
+            this.bbsFbx$skinParallel(morphedVertices, morphedNormals, matrices, normalMatrices,
+                    newVertices, newNormals, stencilMap, vertexCount);
+        }
+        else
+        {
+            this.bbsFbx$skinRange(morphedVertices, morphedNormals, matrices, normalMatrices,
+                    newVertices, newNormals, stencilMap, 0, vertexCount);
+        }
+
+        this.processData(newVertices, newNormals);
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vertexBuffer);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newVertices, GL15.GL_DYNAMIC_DRAW);
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.normalBuffer);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newNormals, GL15.GL_DYNAMIC_DRAW);
+
+        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled())
+        {
+            mchorse.bbs_mod.client.BBSRendering.calculateTangents(this.tmpTangents, newVertices, newNormals, this.data.texData);
+
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.tangentBuffer);
+            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpTangents, GL15.GL_DYNAMIC_DRAW);
+        }
+
+        if (stencilMap != null)
+        {
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.lightBuffer);
+            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpLight, GL15.GL_DYNAMIC_DRAW);
+        }
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+    }
+
+    /**
+     * Splits {@code [0, vertexCount)} into {@code bbsFbx$WORKER_COUNT + 1}
+     * contiguous chunks -- one run inline on the calling (render) thread,
+     * the rest submitted to {@link #bbsFbx$pool} -- and blocks until every
+     * chunk has written its slice of {@code newVertices}/{@code newNormals}/
+     * {@code tmpLight}. Each chunk only ever touches indices inside its own
+     * range, so there's no synchronization needed on the output arrays
+     * themselves, only on "has every chunk finished" (the latch).
+     *
+     * <p>Any exception thrown inside a worker chunk is captured (the pool's
+     * {@code Runnable} can't just throw - nothing would catch it) and
+     * re-thrown here on the render thread once every chunk has reported in,
+     * so a bad frame surfaces as a normal crash/log entry pointing at this
+     * method instead of silently vanishing on a background thread.</p>
+     */
+    @Unique
+    private void bbsFbx$skinParallel(
+            float[] morphedVertices, float[] morphedNormals, Matrix4f[] matrices, Matrix3f[] normalMatrices,
+            float[] newVertices, float[] newNormals, StencilMap stencilMap, int vertexCount)
+    {
+        int chunks = bbsFbx$WORKER_COUNT + 1;
+        int chunkSize = (vertexCount + chunks - 1) / chunks;
+
+        CountDownLatch latch = new CountDownLatch(chunks - 1);
+        AtomicReference<RuntimeException> failure = new AtomicReference<>();
+
+        int ownStart = 0;
+        int ownEnd = Math.min(vertexCount, chunkSize);
+
+        for (int c = 1; c < chunks; c++)
+        {
+            int start = Math.min(vertexCount, c * chunkSize);
+            int end = Math.min(vertexCount, start + chunkSize);
+
+            if (start >= end)
+            {
+                latch.countDown();
+                continue;
+            }
+
+            bbsFbx$pool.execute(() ->
+            {
+                try
+                {
+                    this.bbsFbx$skinRange(morphedVertices, morphedNormals, matrices, normalMatrices,
+                            newVertices, newNormals, stencilMap, start, end);
+                }
+                catch (RuntimeException e)
+                {
+                    failure.compareAndSet(null, e);
+                }
+                finally
+                {
+                    latch.countDown();
+                }
+            });
+        }
+
+        // The render thread does its own share of the work instead of just
+        // waiting on the pool - "chunk 0" isn't free labor for the workers,
+        // it's the calling thread pulling its own weight too.
+        if (ownStart < ownEnd)
+        {
+            this.bbsFbx$skinRange(morphedVertices, morphedNormals, matrices, normalMatrices,
+                    newVertices, newNormals, stencilMap, ownStart, ownEnd);
+        }
+
+        try
+        {
+            latch.await();
+        }
+        catch (InterruptedException e)
+        {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting on FBX skinning workers", e);
+        }
+
+        RuntimeException failed = failure.get();
+
+        if (failed != null)
+        {
+            throw failed;
+        }
+    }
+
+    /**
+     * The actual skin math for vertices {@code [start, end)} -- identical to
+     * the single-threaded loop this replaced, just bounded to a sub-range
+     * and with its own local scratch vectors (required for this to be safe
+     * to call from multiple threads at once: {@code sum}/{@code result}/
+     * {@code sumNormal}/{@code resultNormal} used to be shared method-locals
+     * reused every iteration, which is exactly the kind of state that can't
+     * be shared across threads). {@code matrices}/{@code normalMatrices} are
+     * read-only here and already fully built before any chunk starts, and
+     * every write below lands at index {@code i}, which belongs to exactly
+     * one chunk - no two chunks ever touch the same array slot.
+     */
+    @Unique
+    private void bbsFbx$skinRange(
+            float[] morphedVertices, float[] morphedNormals, Matrix4f[] matrices, Matrix3f[] normalMatrices,
+            float[] newVertices, float[] newNormals, StencilMap stencilMap, int start, int end)
+    {
+        Vector4f sum = new Vector4f();
+        Vector4f result = new Vector4f(0F, 0F, 0F, 0F);
+        Vector3f sumNormal = new Vector3f();
+        Vector3f resultNormal = new Vector3f();
+
+        for (int i = start; i < end; i++)
         {
             int boneCount = 0;
             float maxWeight = -1;
@@ -312,7 +565,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
                     result.add(sum.mul(weight));
 
                     sumNormal.set(morphedNormals[i * 3], morphedNormals[i * 3 + 1], morphedNormals[i * 3 + 2]);
-                    Matrices.TEMP_3F.set(matrices[index]).transform(sumNormal);
+                    normalMatrices[index].transform(sumNormal);
                     resultNormal.add(sumNormal.mul(weight));
 
                     boneCount++;
@@ -352,30 +605,6 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
                 this.tmpLight[i * 2 + 1] = 0;
             }
         }
-
-        this.processData(newVertices, newNormals);
-
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vertexBuffer);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newVertices, GL15.GL_DYNAMIC_DRAW);
-
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.normalBuffer);
-        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newNormals, GL15.GL_DYNAMIC_DRAW);
-
-        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled())
-        {
-            mchorse.bbs_mod.client.BBSRendering.calculateTangents(this.tmpTangents, newVertices, newNormals, this.data.texData);
-
-            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.tangentBuffer);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpTangents, GL15.GL_DYNAMIC_DRAW);
-        }
-
-        if (stencilMap != null)
-        {
-            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.lightBuffer);
-            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpLight, GL15.GL_DYNAMIC_DRAW);
-        }
-
-        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
     }
 
     /**
