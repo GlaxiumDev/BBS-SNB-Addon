@@ -1,6 +1,6 @@
 package elgatopro300.bbsfbx.mixin.cml;
 
-import elgatopro300.bbsfbx.render.CubicCubeRendererFields;
+import elgatopro300.bbsfbx.mixin.CubicCubeRendererAccessor;
 import elgatopro300.bbsfbx.render.IModelInstanceMaterialVaos;
 import elgatopro300.bbsfbx.render.MaterialTextureDelegate;
 
@@ -88,12 +88,14 @@ public abstract class CubicVAORendererMixinCML
             return;
         }
 
-        float r = CubicCubeRendererFields.getR(this) * group.color.r;
-        float g = CubicCubeRendererFields.getG(this) * group.color.g;
-        float b = CubicCubeRendererFields.getB(this) * group.color.b;
-        float a = CubicCubeRendererFields.getA(this) * group.color.a;
-        int light = CubicCubeRendererFields.getLight(this);
-        StencilMap stencilMap = CubicCubeRendererFields.getStencilMap(this);
+        CubicCubeRendererAccessor accessor = (CubicCubeRendererAccessor) (Object) this;
+
+        float r = accessor.bbsFbx$getR() * group.color.r;
+        float g = accessor.bbsFbx$getG() * group.color.g;
+        float b = accessor.bbsFbx$getB() * group.color.b;
+        float a = accessor.bbsFbx$getA() * group.color.a;
+        int light = accessor.bbsFbx$getLight();
+        StencilMap stencilMap = accessor.bbsFbx$getStencilMap();
 
         if (stencilMap != null)
         {
@@ -117,7 +119,7 @@ public abstract class CubicVAORendererMixinCML
                 BBSModClient.getTextures().bindTexture(resolved);
             }
 
-            ModelVAORenderer.render(this.program, entry.getValue(), stack, r, g, b, a, light, CubicCubeRendererFields.getOverlay(this));
+            ModelVAORenderer.render(this.program, entry.getValue(), stack, r, g, b, a, light, accessor.bbsFbx$getOverlay());
         }
 
         cir.cancel();

@@ -59,6 +59,26 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
     @Shadow protected abstract void processData(float[] newVertices, float[] newNormals);
 
+    /**
+     * Scratch buffers for the shape-key-blended vertex/normal data before
+     * bone skinning - reused across calls instead of allocating two fresh
+     * {@code float[]} arrays (sized to the model's full vertex count) every
+     * single {@code updateMesh} call that has any active shape-key weight.
+     * Same "allocate once, reuse forever" pattern the host itself already
+     * uses for {@code tmpVertices}/{@code tmpNormals} above. Re-allocated
+     * only if the required length changes (model swap) - a plain length
+     * check, no extra bookkeeping needed since {@code oldVertices.length}
+     * is already read fresh every call.
+     */
+    private float[] bbsFbx$morphedVertices = new float[0];
+    private float[] bbsFbx$morphedNormals = new float[0];
+
+    @Unique
+    private float[] bbsFbx$morphScratch(float[] current, int length)
+    {
+        return current.length == length ? current : new float[length];
+    }
+
     private ShapeKeys bbsFbx$shapeKeys;
 
     @Override
@@ -115,10 +135,12 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
         if (this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty())
         {
-            morphedVertices = new float[oldVertices.length];
+            this.bbsFbx$morphedVertices = this.bbsFbx$morphScratch(this.bbsFbx$morphedVertices, oldVertices.length);
+            morphedVertices = this.bbsFbx$morphedVertices;
             System.arraycopy(oldVertices, 0, morphedVertices, 0, oldVertices.length);
 
-            morphedNormals = new float[oldNormals.length];
+            this.bbsFbx$morphedNormals = this.bbsFbx$morphScratch(this.bbsFbx$morphedNormals, oldNormals.length);
+            morphedNormals = this.bbsFbx$morphedNormals;
             System.arraycopy(oldNormals, 0, morphedNormals, 0, oldNormals.length);
 
             for (Map.Entry<String, Float> entry : this.bbsFbx$shapeKeys.shapeKeys.entrySet())
