@@ -22,6 +22,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.Arrays;
 import java.util.Map;
 
 /**
@@ -79,6 +80,107 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         return current.length == length ? current : new float[length];
     }
 
+    /**
+     * Pose cache: skips the entire per-frame CPU skinning + GL re-upload when
+     * the last-uploaded buffers would be byte-identical. The host calls
+     * {@code updateMesh} unconditionally every frame from
+     * {@code ModelInstance.render} (after {@code armature.setupMatrices()});
+     * a static prop therefore re-skins and re-uploads ALL of its vertices
+     * every single frame for zero visual change. A single high-poly FBX car
+     * (650k vertices, 123 bones) drops below 40 FPS from this alone.
+     *
+     * <p>The skinned output depends only on the armature matrices, the
+     * geometry arrays (captured via {@code data}/{@code armature} identity +
+     * {@code count}) and the stencil light flag -- {@code processData} is a
+     * no-op in every fork's {@code BOBJModelVAO} -- so a signature of exactly
+     * those inputs is an exact "has anything changed" test. When unchanged we
+     * cancel the whole method and the GPU buffers keep the previous frame's
+     * (correct) content: skinning + upload become O(bones) instead of
+     * O(vertices). Any real pose change (animation, editor drag) alters the
+     * matrices and re-triggers a full re-skin. Disabled while shape keys are
+     * active (their weights aren't part of the signature).</p>
+     */
+    @Unique
+    private boolean bbsFbx$poseCacheValid;
+
+    @Unique
+    private float[] bbsFbx$poseCache;
+
+    @Unique
+    private float[] bbsFbx$poseScratch;
+
+    @Unique
+    private Object bbsFbx$poseDataRef;
+
+    @Unique
+    private Object bbsFbx$poseArmatureRef;
+
+    /**
+     * @return true when updateMesh would produce exactly what's already in the
+     *         GPU buffers (caller should cancel), false when it must re-run.
+     *         On a "changed" result the cache is re-armed with the current
+     *         signature so the next unchanged frame short-circuits.
+     */
+    @Unique
+    private boolean bbsFbx$poseUnchanged(StencilMap stencilMap)
+    {
+        if (this.data == null || this.armature == null)
+        {
+            return false;
+        }
+
+        Matrix4f[] matrices = this.armature.matrices;
+        int matrixCount = matrices == null ? 0 : matrices.length;
+        int sigSize = matrixCount * 16 + 2;
+
+        if (this.bbsFbx$poseCache == null || this.bbsFbx$poseScratch == null
+                || this.bbsFbx$poseCache.length != sigSize)
+        {
+            this.bbsFbx$poseCache = new float[sigSize];
+            this.bbsFbx$poseScratch = new float[sigSize];
+            this.bbsFbx$poseCacheValid = false;
+        }
+
+        if (this.bbsFbx$poseDataRef != this.data || this.bbsFbx$poseArmatureRef != this.armature)
+        {
+            this.bbsFbx$poseCacheValid = false;
+        }
+
+        float[] sig = this.bbsFbx$poseScratch;
+        int p = 0;
+
+        if (matrices != null)
+        {
+            for (int i = 0; i < matrixCount; i++)
+            {
+                Matrix4f m = matrices[i];
+                sig[p] = m.m00(); sig[p + 1] = m.m01(); sig[p + 2] = m.m02(); sig[p + 3] = m.m03();
+                sig[p + 4] = m.m10(); sig[p + 5] = m.m11(); sig[p + 6] = m.m12(); sig[p + 7] = m.m13();
+                sig[p + 8] = m.m20(); sig[p + 9] = m.m21(); sig[p + 10] = m.m22(); sig[p + 11] = m.m23();
+                sig[p + 12] = m.m30(); sig[p + 13] = m.m31(); sig[p + 14] = m.m32(); sig[p + 15] = m.m33();
+                p += 16;
+            }
+        }
+
+        sig[p] = stencilMap != null && stencilMap.increment ? 1.0f : 0.0f;
+        p++;
+        sig[p] = this.count;
+
+        if (this.bbsFbx$poseCacheValid && Arrays.equals(sig, this.bbsFbx$poseCache))
+        {
+            return true;
+        }
+
+        float[] swap = this.bbsFbx$poseCache;
+        this.bbsFbx$poseCache = this.bbsFbx$poseScratch;
+        this.bbsFbx$poseScratch = swap;
+        this.bbsFbx$poseCacheValid = true;
+        this.bbsFbx$poseDataRef = this.data;
+        this.bbsFbx$poseArmatureRef = this.armature;
+
+        return false;
+    }
+
     private ShapeKeys bbsFbx$shapeKeys;
 
     @Override
@@ -94,6 +196,21 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     @Inject(method = "updateMesh", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$updateMeshWithShapeKeys(StencilMap stencilMap, CallbackInfo info)
     {
+        /* Pose cache: skip skinning + upload entirely when the pose hasn't
+         * changed since the last call (static props pay O(bones) instead of
+         * O(vertices)). Shape-keyed models bypass the cache -- their blend
+         * output depends on the per-frame key weights. */
+        boolean shapeKeysActive = this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty();
+
+        boolean unchanged = this.bbsFbx$poseUnchanged(stencilMap);
+
+        if (!shapeKeysActive && unchanged)
+        {
+            info.cancel();
+
+            return;
+        }
+
         /* Boneless armatures have a zero-length matrices array, but data
          * producers that don't guard (e.g. this addon's own
          * FBXMeshCompiler.compile) still write weight > 0 with bone index 0
