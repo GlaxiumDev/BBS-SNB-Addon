@@ -17,6 +17,7 @@ import org.lwjgl.opengl.GL15;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -73,6 +74,27 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     @Inject(method = "updateMesh", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$updateMeshWithShapeKeys(StencilMap stencilMap, CallbackInfo info)
     {
+        /* Boneless armatures have a zero-length matrices array, but data
+         * producers that don't guard (e.g. this addon's own
+         * FBXMeshCompiler.compile) still write weight > 0 with bone index 0
+         * for unweighted vertices. The host's updateMesh then indexes
+         * matrices[boneIndex] unconditionally and throws
+         * ArrayIndexOutOfBoundsException ("Index 0 out of bounds for length
+         * 0") before a single model in the UI palette can draw -- see
+         * crash report crash-2026-08-03_10.16.14-client.txt. With no bones
+         * there is nothing to skin, so upload the geometry unchanged and
+         * skip the loop entirely. This guards every data source (FBX,
+         * native BOBJ, merged), not just FBX shape-keyed meshes. */
+        Matrix4f[] matrices = this.armature != null ? this.armature.matrices : null;
+
+        if (matrices == null || matrices.length == 0)
+        {
+            info.cancel();
+            this.bbsFbx$uploadUnskinned(stencilMap);
+
+            return;
+        }
+
         if (!(this.data instanceof FBXCompiledData fbxData) || fbxData.shapeKeyVertices == null || fbxData.shapeKeyVertices.isEmpty())
         {
             return;
@@ -132,8 +154,6 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         float[] newVertices = this.tmpVertices;
         float[] newNormals = this.tmpNormals;
 
-        Matrix4f[] matrices = this.armature.matrices;
-
         for (int i = 0, c = this.count; i < c; i++)
         {
             int boneCount = 0;
@@ -192,6 +212,52 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
                 this.tmpLight[i * 2] = Math.max(0, stencilMap.increment ? lightBone : 0);
                 this.tmpLight[i * 2 + 1] = 0;
             }
+        }
+
+        this.processData(newVertices, newNormals);
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vertexBuffer);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newVertices, GL15.GL_DYNAMIC_DRAW);
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.normalBuffer);
+        GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newNormals, GL15.GL_DYNAMIC_DRAW);
+
+        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled())
+        {
+            mchorse.bbs_mod.client.BBSRendering.calculateTangents(this.tmpTangents, newVertices, newNormals, this.data.texData);
+
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.tangentBuffer);
+            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpTangents, GL15.GL_DYNAMIC_DRAW);
+        }
+
+        if (stencilMap != null)
+        {
+            GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.lightBuffer);
+            GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpLight, GL15.GL_DYNAMIC_DRAW);
+        }
+
+        GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+    }
+
+    /**
+     * Uploads this VAO's buffers with the geometry completely unskinned --
+     * the exact same output the host's {@code updateMesh} produces for
+     * vertices with no bone influence (its "count == 0" branch keeps rest
+     * position/normal, and {@code lightBone} stays -1 so every
+     * {@code tmpLight} write collapses to 0 either way).
+     */
+    @Unique
+    private void bbsFbx$uploadUnskinned(StencilMap stencilMap)
+    {
+        float[] newVertices = this.tmpVertices;
+        float[] newNormals = this.tmpNormals;
+
+        System.arraycopy(this.data.posData, 0, newVertices, 0, this.data.posData.length);
+        System.arraycopy(this.data.normData, 0, newNormals, 0, this.data.normData.length);
+
+        if (stencilMap != null)
+        {
+            java.util.Arrays.fill(this.tmpLight, 0);
         }
 
         this.processData(newVertices, newNormals);

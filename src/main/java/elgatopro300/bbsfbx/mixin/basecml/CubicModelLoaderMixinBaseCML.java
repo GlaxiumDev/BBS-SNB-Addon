@@ -4,6 +4,7 @@ import elgatopro300.bbsfbx.model.fbx.loaders.FBXMaterialTextureConfig;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXModelLoader;
 import elgatopro300.bbsfbx.model.fbx.loaders.FBXTextureResolverCML;
 import elgatopro300.bbsfbx.model.fbx.loaders.IModelMaterialTextures;
+import elgatopro300.bbsfbx.model.fbx.loaders.IModelMeshMaterial;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.data.animation.Animations;
@@ -32,8 +33,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Base/CML fix for native {@code CubicModelLoader.load}, which bakes every
@@ -41,17 +44,20 @@ import java.util.Map;
  * whole model). This intercepts pure-OBJ models (no {@code model.bbs.json}
  * skeleton to merge) and loads them as a NATIVE cubic model -- no BOBJ
  * conversion, no dummy armature, no bones -- with one {@code ModelGroup} per
- * OBJ material, mirroring how BBS FS's own OBJ loader works.
+ * OBJ object and one {@code ModelMesh} per OBJ {@code usemtl} group,
+ * mirroring how BBS FS's own OBJ loader works. A car tyre/rim with four
+ * materials is therefore ONE group again, not four.
  *
- * <p>The group name IS the material name, so the per-material texture
- * resolution used by the FBX path carries straight over: the group's
- * texture is bound at draw time by {@code CubicVAORendererMixinBase} /
- * {@code CubicVAORendererMixinCML} (per-Form override first, via
- * {@code CurrentMaterialTextureOverrides}, then the material's loaded
- * default). The per-material defaults themselves live on the cubic
- * {@code Model} ({@link IModelMaterialTextures}), which is what makes the
- * material picker, film-editor material sheets and form properties all work
- * unchanged for OBJ models.</p>
+ * <p>Each mesh carries its material name ({@code ModelMeshMixin}), and
+ * {@code CubicVAOBucketingBuilder} bakes one VAO per material inside each
+ * group (exactly FS's structure). At draw time
+ * {@code CubicVAORendererMixinBase} / {@code CubicVAORendererMixinCML} draw
+ * one material at a time, binding each material's resolved texture
+ * (per-Form override first, via {@code CurrentMaterialTextureOverrides},
+ * then the material's loaded default). The per-material defaults themselves
+ * live on the cubic {@code Model} ({@link IModelMaterialTextures}), which
+ * is what makes the material picker, film-editor material sheets and form
+ * properties all work unchanged for OBJ models.</p>
  *
  * <p>Per-material default resolution, matching BBS FS's native OBJ loader: a
  * saved per-material pick ({@link FBXMaterialTextureConfig}), else the
@@ -133,48 +139,55 @@ public abstract class CubicModelLoaderMixinBaseCML
                 }
             }
 
-            /* One ModelGroup per OBJ material. The group id IS the material
-             * name, which is what lets the renderers bind per-material
-             * textures and lets the picker / film editor identify materials. */
-            Map<String, List<MeshOBJ>> byMaterial = new LinkedHashMap<>();
+            /* One ModelGroup per OBJ object, one ModelMesh per OBJ material
+             * -- mirroring BBS FS's native CubicModelLoader.load. The group
+             * name IS the object name; each mesh carries its material name
+             * (ModelMeshMixin) so CubicVAOBucketingBuilder can bake one VAO
+             * per material inside the group. */
+            Model theModel = new Model(models.parser);
+            theModel.textureWidth = 1;
+            theModel.textureHeight = 1;
 
-            for (MeshesOBJ value : compile.values())
+            List<String> materialNames = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+
+            for (Map.Entry<String, MeshesOBJ> entry : compile.entrySet())
             {
+                MeshesOBJ value = entry.getValue();
+
+                if (value.meshes.isEmpty())
+                {
+                    continue;
+                }
+
+                ModelGroup group = new ModelGroup(entry.getKey());
+                theModel.topGroups.add(group);
+
                 for (MeshOBJ mesh : value.meshes)
                 {
-                    String name = mesh.material != null && mesh.material.name != null && !mesh.material.name.isEmpty()
-                            ? mesh.material.name : "Default";
+                    ModelMesh modelMesh = new ModelMesh();
+                    modelMesh.baseData.fill(mesh, theModel.textureWidth, theModel.textureHeight);
 
-                    byMaterial.computeIfAbsent(name, k -> new ArrayList<>()).add(mesh);
+                    String name = mesh.material != null && mesh.material.name != null ? mesh.material.name : "";
+                    ((IModelMeshMaterial) modelMesh).bbsFbx$setMaterial(name);
+
+                    if (!name.isEmpty() && seen.add(name))
+                    {
+                        materialNames.add(name);
+                    }
+
+                    group.meshes.add(modelMesh);
                 }
             }
 
-            if (byMaterial.isEmpty())
+            if (theModel.topGroups.isEmpty())
             {
                 cir.setReturnValue(null);
                 return;
             }
 
-            Model theModel = new Model(models.parser);
-            theModel.textureWidth = 1;
-            theModel.textureHeight = 1;
-
-            for (Map.Entry<String, List<MeshOBJ>> entry : byMaterial.entrySet())
-            {
-                ModelGroup group = new ModelGroup(entry.getKey());
-                theModel.topGroups.add(group);
-
-                for (MeshOBJ mesh : entry.getValue())
-                {
-                    ModelMesh modelMesh = new ModelMesh();
-                    modelMesh.baseData.fill(mesh, theModel.textureWidth, theModel.textureHeight);
-                    group.meshes.add(modelMesh);
-                }
-            }
-
             theModel.initialize();
 
-            List<String> materialNames = List.copyOf(byMaterial.keySet());
             Map<String, Link> materialTextures = resolveObjMaterialTextures(
                     materialNames, compile, model, links, models.provider);
 
@@ -214,7 +227,7 @@ public abstract class CubicModelLoaderMixinBaseCML
 
     /**
      * Per-material default texture resolution for OBJ models -- see the class
-     * doc for the order. Keys are the OBJ material names the groups were
+     * doc for the order. Keys are the OBJ material names the meshes were
      * built from.
      */
     private static Map<String, Link> resolveObjMaterialTextures(

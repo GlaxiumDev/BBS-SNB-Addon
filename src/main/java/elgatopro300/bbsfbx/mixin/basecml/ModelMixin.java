@@ -13,11 +13,13 @@ import java.util.Map;
 
 /**
  * Gives Base/CML's cubic {@code Model} the per-material texture data
- * described by {@link IModelMaterialTextures}. One {@code ModelGroup} per
- * OBJ material is produced by {@link CubicModelLoaderMixinBaseCML} (see its
- * class doc for why that structure + this data replaces the old OBJ-to-BOBJ
- * conversion), and the group name IS the material name, so the renderers can
- * resolve the group's texture straight off the model.
+ * described by {@link IModelMaterialTextures}. OBJ models loaded by
+ * {@link CubicModelLoaderMixinBaseCML} (see its class doc) keep one
+ * {@code ModelGroup} per OBJ object with one mesh per OBJ material, and the
+ * materials list here is what lets the renderers
+ * ({@code CubicVAORendererMixinBase} / {@code CubicVAORendererMixinCML})
+ * resolve each material's texture off the model (per-Form override first,
+ * else the material's loaded default).
  *
  * <p>{@code @Unique} fields only -- nothing here injects into an existing
  * method, so this single mixin class works against both Base's and CML's

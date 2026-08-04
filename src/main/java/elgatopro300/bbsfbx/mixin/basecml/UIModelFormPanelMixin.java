@@ -1,5 +1,6 @@
-package elgatopro300.bbsfbx.mixin;
+package elgatopro300.bbsfbx.mixin.basecml;
 
+import elgatopro300.bbsfbx.mixin.UIFormPanelAccessorCML;
 import elgatopro300.bbsfbx.model.fbx.loaders.IFormMaterialTextureHolder;
 import elgatopro300.bbsfbx.model.fbx.loaders.IMaterialTextureHolder;
 
@@ -40,11 +41,20 @@ import java.util.function.Supplier;
  * completely unaffected - {@link #bbsFbx$onPickTexture} falls through to
  * exactly the original single-texture-picker call for those.
  *
- * <p>Originally shipped as {@code mixin.cml.UIModelFormPanelMixinCML}, gated
- * to CML only. Moved here (ungated - applies on every fork) once it became
- * clear nothing in this class actually needs CML: every BBS class/method it
- * touches was already checked directly against real Base source per the doc
- * comments below, and the one genuinely CML-only piece
+ * <p>Gated to Base/CML only (package {@code mixin.basecml}). FS is excluded
+ * because FS already HAS this exact feature natively: its own
+ * {@code UIModelFormPanel} shows a per-material pick menu straight from the
+ * model's native {@code model.materials}/{@code form.materialTextures}
+ * (confirmed against FS's real source, lines 77-99), which the ungated copy
+ * of this mixin was breaking -- it overrode the pick button on every fork and
+ * read materials via {@code IMaterialTextureHolder}, which resolves empty for
+ * native FS obj/bobj models, so the menu never appeared on FS. Base/CML have
+ * no native per-material picker, so this restores the feature where it's
+ * actually missing and leaves FS's own working picker untouched.</p>
+ *
+ * <p>Nothing in this class actually needs CML specifically: every BBS
+ * class/method it touches was already checked directly against real Base
+ * source per the doc comments below, and the one genuinely CML-only piece
  * ({@code withFormPreview}) was already behind a reflective try/catch that
  * silently no-ops where the method doesn't exist. Rendering multiple
  * materials at all (as opposed to just picking their textures in this menu)
