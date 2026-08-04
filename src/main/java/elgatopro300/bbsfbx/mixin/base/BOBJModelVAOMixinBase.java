@@ -91,7 +91,7 @@ public abstract class BOBJModelVAOMixinBase
         info.cancel();
 
         int previousTexture = GL30.glGetInteger(GL30.GL_TEXTURE_BINDING_2D);
-        int[] dominant = MultiMaterialTriangleDraw.computeDominantMaterialPerTriangle(fbxData.materialIndexData);
+        int[][] materialRuns = fbxData.getMaterialDrawRuns();
         boolean hasShaders = BBSRendering.isIrisShadersEnabled();
 
         GL30.glVertexAttrib4f(Attributes.COLOR, r, g, b, a);
@@ -141,7 +141,7 @@ public abstract class BOBJModelVAOMixinBase
                 GL30.glBindTexture(GL30.GL_TEXTURE_2D, previousTexture);
             }
 
-            MultiMaterialTriangleDraw.drawTrianglesForMaterial(dominant, m);
+            MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
         }
 
         GL30.glDisableVertexAttribArray(Attributes.POSITION);

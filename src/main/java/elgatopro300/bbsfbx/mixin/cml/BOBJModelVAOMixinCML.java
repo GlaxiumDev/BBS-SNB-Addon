@@ -38,9 +38,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * already uses (see the {@code fullOverrides} loop in the real
  * {@code render()}) - but NOT its private {@code drawTriangles}, since that
  * method reads the host's own bone-keyed array internally rather than
- * taking one as a parameter; {@link #bbsFbx$drawTrianglesForMaterial} is a
- * faithful copy of its contiguous-run algorithm reading a material-keyed
- * array instead.
+ * taking one as a parameter; {@link elgatopro300.bbsfbx.render.MultiMaterialTriangleDraw#drawRuns}
+ * draws from {@link elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData
+ * #getMaterialDrawRuns()}'s precomputed material-keyed run ranges instead.
  *
  * <p>The @Inject below cancels the original method entirely and re-runs its
  * setup/teardown by hand, copied line-for-line from BBS CML EDITION
@@ -62,9 +62,6 @@ public abstract class BOBJModelVAOMixinCML
     @Shadow public BOBJLoader.CompiledData data;
     @Shadow public BOBJArmature armature;
     @Shadow private int vao;
-
-    private int[] bbsFbx$dominantMaterialPerTriangle;
-    private FBXCompiledData bbsFbx$dominantMaterialSource;
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$renderPerMaterial(
@@ -89,7 +86,15 @@ public abstract class BOBJModelVAOMixinCML
 
         info.cancel();
 
-        this.bbsFbx$ensureDominantMaterial(fbxData);
+        // Precomputed once and cached on FBXCompiledData -- not the per-VAO
+        // cache of the raw per-triangle array this used to keep locally (see
+        // git history): that still left an O(triangles) scan per material
+        // PER RENDER CALL to find contiguous runs, which testing showed was
+        // the actual remaining per-frame cost (FPS scaled with material
+        // count, not texture count). getMaterialDrawRuns() precomputes the
+        // run boundaries themselves in one pass, once, so rendering is just
+        // replaying fixed ranges -- shared with the Base/FS mixins' fix too.
+        int[][] materialRuns = fbxData.getMaterialDrawRuns();
 
         boolean hasShaders = BBSRendering.isIrisShadersEnabled();
 
@@ -156,7 +161,7 @@ public abstract class BOBJModelVAOMixinCML
             // intensity is still the whole-model one from ModelFormRenderer.applyPBRTextureIntensity.
             BBSRendering.trackTexture(BBSModClient.getTextures().getTexture(toUse));
 
-            this.bbsFbx$drawTrianglesForMaterial(m);
+            elgatopro300.bbsfbx.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
         }
 
         // Restore whatever intensity the caller had staged for the rest of the model/pass.
@@ -173,69 +178,6 @@ public abstract class BOBJModelVAOMixinCML
 
         GL30.glBindVertexArray(currentVAO);
         GL30.glBindBuffer(GL30.GL_ELEMENT_ARRAY_BUFFER, currentElementArrayBuffer);
-    }
-
-    /**
-     * Faithful copy of the host's own {@code drawTriangles(IntPredicate)}
-     * contiguous-run algorithm, reading {@link #bbsFbx$dominantMaterialPerTriangle}
-     * instead of the host's private (bone-keyed) array - {@code @Invoker}
-     * can't be used for this since the real method reads its own field
-     * internally rather than taking an array as a parameter, so it has no
-     * way to substitute a material-keyed one in.
-     */
-    private void bbsFbx$drawTrianglesForMaterial(int materialIndex)
-    {
-        int[] dominant = this.bbsFbx$dominantMaterialPerTriangle;
-        int start = -1;
-
-        for (int i = 0; i < dominant.length; i++)
-        {
-            boolean draw = dominant[i] == materialIndex;
-
-            if (draw && start == -1)
-            {
-                start = i;
-            }
-            else if (!draw && start != -1)
-            {
-                GL30.glDrawArrays(GL30.GL_TRIANGLES, start * 3, (i - start) * 3);
-                start = -1;
-            }
-        }
-
-        if (start != -1)
-        {
-            GL30.glDrawArrays(GL30.GL_TRIANGLES, start * 3, (dominant.length - start) * 3);
-        }
-    }
-
-    /**
-     * Builds the per-triangle material lookup {@link #bbsFbx$drawTrianglesForMaterial}
-     * reads from, using each triangle's first vertex's material index - safe
-     * because every vertex belonging to one triangle came from the same
-     * originating BOBJMesh/material in
-     * {@code FBXMeshCompiler#compileMergedWithMaterials}. Cached per VAO
-     * instance since neither the mesh data nor its material split change
-     * after this VAO is constructed.
-     */
-    private void bbsFbx$ensureDominantMaterial(FBXCompiledData fbxData)
-    {
-        if (this.bbsFbx$dominantMaterialSource == fbxData && this.bbsFbx$dominantMaterialPerTriangle != null)
-        {
-            return;
-        }
-
-        int[] materialIndexData = fbxData.materialIndexData;
-        int triangleCount = materialIndexData.length / 3;
-        int[] dominant = new int[triangleCount];
-
-        for (int triangle = 0; triangle < triangleCount; triangle++)
-        {
-            dominant[triangle] = materialIndexData[triangle * 3];
-        }
-
-        this.bbsFbx$dominantMaterialPerTriangle = dominant;
-        this.bbsFbx$dominantMaterialSource = fbxData;
     }
 
     /**
