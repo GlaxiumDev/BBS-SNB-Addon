@@ -1,3 +1,34 @@
-Copyright 2026 ElGatoPro300
+MIT License
 
-Permission is granted, free of charge, to any person who obtains a copy of this software and associated documentation files (the "Software") to operate the Software without restriction, including, but not limited to, the rights to use, copy, modify, merge, publish, distribute, sublicense and/or sell copies of the Software, provided that due credit is given to the author.
+Copyright (c) 2026 Glaxium
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Attribution
+
+This project began as a fork of [BBS FBX Addon](https://github.com/ElGatoPro300/BBS-FBX-Addon)
+by **ElGatoPro300**, originally licensed under a permissive license requiring
+credit to the original author. Since then it has been substantially rewritten
+-- multi-fork (Base/FS/CML) support, per-material texture and PBR rendering,
+shape keys, and armature animation baking are new work not present in the
+original. Credit to ElGatoPro300 for the original FBX-for-CML addon and for
+BBS CML EDITION itself.
+
+BBS and BBS FS are separate projects by mchorse and Wemppy that this addon
+targets and interoperates with, but does not contain code from.

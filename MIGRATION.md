@@ -74,7 +74,9 @@ Base too, confirmed via the `BOBJModel` constructor check above.
   qualified name is used here instead).
 
 ### `bbs_fbx.mixins.json`
-Added `"plugin": "elgatopro300.bbsfbx.BBSFbxMixinPlugin"`, renamed the three
+Added `"plugin": "glaxium.snb.BBSFbxMixinPlugin"` (package later renamed from
+`elgatopro300.bbsfbx` to `glaxium.snb` as part of the project rename to
+BBS_S&B_Addon), renamed the three
 always-on mixins, added the three fork-gated ones as
 `"base.ModelInstanceMixinBase"` / `"fs.ModelInstanceMixinFS"` /
 `"cml.ModelInstanceMixinCML"` (paths relative to the mixin `package`).
