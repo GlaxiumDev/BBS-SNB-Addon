@@ -3,7 +3,7 @@
   "id": "bbs-snb-addon",
   "version": "${version}",
   "name": "BBS_S&B_Addon",
-  "description": "FBX model import/compatibility for BBS. Runs unmodified on BBS Base, BBS FS and BBS CML EDITION -- no BBS Addon Engine required.",
+  "description": "Skins and Bones (S&B / SNB): FBX model import/compatibility for BBS. Runs unmodified on BBS Base, BBS FS and BBS CML EDITION -- no BBS Addon Engine required. Name inspired by the old S&B mod (not affiliated).",
   "authors": [
     "Glaxium"
   ],

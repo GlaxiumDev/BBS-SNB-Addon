@@ -1,5 +1,10 @@
 # BBS_S&B_Addon
 
+**S&B** / **SNB** stands for **Skins and Bones**. The name is inspired by the
+old (now inactive) Minecraft mod
+[S&B](https://www.curseforge.com/minecraft/mc-mods/snb) — this project is not
+affiliated with it.
+
 Adds FBX model loading support to **BBS** -- runs unmodified on **BBS Base**,
 **BBS FS**, and **BBS CML EDITION**, with a single mixin plugin
 (`BBSFbxMixinPlugin`) picking the right fork-specific code at load time. No

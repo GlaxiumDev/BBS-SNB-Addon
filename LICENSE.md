@@ -32,3 +32,7 @@ BBS CML EDITION itself.
 
 BBS and BBS FS are separate projects by mchorse and Wemppy that this addon
 targets and interoperates with, but does not contain code from.
+
+The name **S&B** / **SNB** (**Skins and Bones**) is inspired by the old,
+inactive Minecraft mod [S&B](https://www.curseforge.com/minecraft/mc-mods/snb).
+This project is not affiliated with that mod and does not contain code from it.
