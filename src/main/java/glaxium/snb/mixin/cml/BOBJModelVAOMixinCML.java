@@ -1,8 +1,8 @@
-package elgatopro300.bbsfbx.mixin.cml;
+package glaxium.snb.mixin.cml;
 
-import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
-import elgatopro300.bbsfbx.render.CurrentMaterialPbrOverrides;
-import elgatopro300.bbsfbx.render.MaterialPbrIntensity;
+import glaxium.snb.model.fbx.loaders.FBXCompiledData;
+import glaxium.snb.render.CurrentMaterialPbrOverrides;
+import glaxium.snb.render.MaterialPbrIntensity;
 
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.bobj.BOBJArmature;
@@ -38,8 +38,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * already uses (see the {@code fullOverrides} loop in the real
  * {@code render()}) - but NOT its private {@code drawTriangles}, since that
  * method reads the host's own bone-keyed array internally rather than
- * taking one as a parameter; {@link elgatopro300.bbsfbx.render.MultiMaterialTriangleDraw#drawRuns}
- * draws from {@link elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData
+ * taking one as a parameter; {@link glaxium.snb.render.MultiMaterialTriangleDraw#drawRuns}
+ * draws from {@link glaxium.snb.model.fbx.loaders.FBXCompiledData
  * #getMaterialDrawRuns()}'s precomputed material-keyed run ranges instead.
  *
  * <p>The @Inject below cancels the original method entirely and re-runs its
@@ -131,7 +131,7 @@ public abstract class BOBJModelVAOMixinCML
 
         String[] materialNames = fbxData.materialNames;
         Link[] materialTextures = fbxData.materialTextures;
-        java.util.Map<String, Link> overrides = elgatopro300.bbsfbx.render.CurrentMaterialTextureOverrides.current();
+        java.util.Map<String, Link> overrides = glaxium.snb.render.CurrentMaterialTextureOverrides.current();
         java.util.Map<String, MaterialPbrIntensity> pbrOverrides = CurrentMaterialPbrOverrides.current();
         MaterialPbrIntensity base = CurrentMaterialPbrOverrides.currentBase();
 
@@ -150,22 +150,32 @@ public abstract class BOBJModelVAOMixinCML
                         pbr.specular != null ? pbr.specular : (base.specular != null ? base.specular : 1.0F));
             }
 
-            // .bind(), not .bindTexture() -- the latter only calls RenderSystem.setShaderTexture,
-            // which is for vanilla's deferred render pipeline. This custom raw-GL draw loop needs
-            // an actual immediate glBindTexture per material, which only .bind() does.
+            // bindTexture(), not .bind(): the raw .bind() only calls glBindTexture, which bypasses
+            // Iris's PBR hook -- Iris applies the _n/_s companion maps as a side effect of
+            // RenderSystem.setShaderTexture (its onSetShaderTexture mixin), so a material bound
+            // only through raw GL never gets its _s specular map. bindTexture() also snapshots the
+            // active PBR intensity against the texture (BBSRendering.trackTexture, with the whole-
+            // model intensity from ModelFormRenderer.applyPBRTextureIntensity active when no per-
+            // material override was staged above) -- the same mechanism the native bindDrawTexture
+            // uses, which is why single-texture models get _s.
+            BBSModClient.getTextures().bindTexture(toUse);
+
+            // Assert active unit 0 before the raw bind: setShaderTexture only records the tracked
+            // value, so the actual GL bind is Texture.bind() -> glBindTexture on the CURRENTLY
+            // ACTIVE unit. shader.bind() leaves a non-zero unit active when Sodium/Iris is present,
+            // stranding the material texture on unit 1 while Sampler0 samples unit 0 (still the
+            // caller's default/body texture) -- hair rendered black. Same fix as
+            // mixin.base.BOBJModelVAOMixinBase.
+            GL30.glActiveTexture(GL30.GL_TEXTURE0);
             BBSModClient.getTextures().bind(toUse);
 
-            // Snapshot the active PBR intensity against this material's texture so the Iris
-            // PBR loader applies it - the same mechanism CML's own TextureManager.bindTexture
-            // uses via BBSRendering.trackTexture. With no per-material override the active
-            // intensity is still the whole-model one from ModelFormRenderer.applyPBRTextureIntensity.
-            BBSRendering.trackTexture(BBSModClient.getTextures().getTexture(toUse));
+            glaxium.snb.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
 
-            elgatopro300.bbsfbx.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+            // Restore the whole-model intensity right after each override-staged material, so a
+            // material without its own override (pbr == null above, where the caller's staged
+            // whole-model intensity applies) never inherits a neighbour material's override.
+            bbsFbx$setPbrIntensity(base.normal != null ? base.normal : 1.0F, base.specular != null ? base.specular : 1.0F);
         }
-
-        // Restore whatever intensity the caller had staged for the rest of the model/pass.
-        bbsFbx$setPbrIntensity(base.normal != null ? base.normal : 1.0F, base.specular != null ? base.specular : 1.0F);
 
         GL30.glDisableVertexAttribArray(Attributes.POSITION);
         GL30.glDisableVertexAttribArray(Attributes.TEXTURE_UV);

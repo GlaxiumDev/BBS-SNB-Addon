@@ -1,8 +1,8 @@
-package elgatopro300.bbsfbx.mixin.fs;
+package glaxium.snb.mixin.fs;
 
-import elgatopro300.bbsfbx.render.CurrentMaterialTextureOverrides;
-import elgatopro300.bbsfbx.render.MultiMaterialTriangleDraw;
-import elgatopro300.bbsfbx.model.fbx.loaders.FBXCompiledData;
+import glaxium.snb.render.CurrentMaterialTextureOverrides;
+import glaxium.snb.render.MultiMaterialTriangleDraw;
+import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.bobj.BOBJLoader;
@@ -26,8 +26,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * FS variant of multi-material FBX rendering. See
- * {@link elgatopro300.bbsfbx.mixin.base.BOBJModelVAOMixinBase} for the Base
- * variant and {@link elgatopro300.bbsfbx.mixin.cml.BOBJModelVAOMixinCML} for
+ * {@link glaxium.snb.mixin.base.BOBJModelVAOMixinBase} for the Base
+ * variant and {@link glaxium.snb.mixin.cml.BOBJModelVAOMixinCML} for
  * CML's.
  *
  * <p><b>Revised from the first version of this class</b> -- that one
@@ -86,7 +86,7 @@ public abstract class BOBJModelVAOMixinFS
 
         info.cancel();
 
-        int previousTexture = GL30.glGetInteger(GL30.GL_TEXTURE_BINDING_2D);
+        int previousTexture = com.mojang.blaze3d.systems.RenderSystem.getShaderTexture(0);
         int[][] materialRuns = fbxData.getMaterialDrawRuns();
         boolean hasShaders = BBSRendering.isIrisShadersEnabled();
 
@@ -122,18 +122,26 @@ public abstract class BOBJModelVAOMixinFS
 
             if (texture != null)
             {
-                // .bind(), not .bindTexture() -- the latter only calls RenderSystem.setShaderTexture,
-                // which is for vanilla's deferred render pipeline. This custom raw-GL draw loop needs
-                // an actual immediate glBindTexture per material, which only .bind() does. This was
-                // the actual bug behind "buttons work, texture picks correctly, but the model still
-                // shows one texture" -- confirmed by reading TextureManager's real source directly:
-                // bindTexture(Link) just stores state for later, .bind(Link) calls Texture.bind(),
-                // which does GL11.glBindTexture(...) right then. Same bug and same fix applied to
-                // mixin.cml.BOBJModelVAOMixinCML, which had the identical mistake.
+                // bindTexture(), not just .bind(): the raw .bind() only calls glBindTexture, which
+                // bypasses Iris's PBR hook -- Iris applies the _n/_s companion maps as a side effect
+                // of RenderSystem.setShaderTexture (its onSetShaderTexture mixin), so a material bound
+                // only through raw GL never gets its _s specular map. This is what makes multi-material
+                // models match single-texture ones (whose native path goes through bindTexture). Same
+                // fix as mixin.cml.BOBJModelVAOMixinCML.
+                BBSModClient.getTextures().bindTexture(texture);
+
+                // Assert active unit 0 before the raw bind: setShaderTexture only records the
+                // tracked value, so the actual GL bind is Texture.bind() -> glBindTexture on the
+                // CURRENTLY ACTIVE unit. shader.bind() leaves a non-zero unit active when
+                // Sodium/Iris is present, stranding the material texture on unit 1 while Sampler0
+                // samples unit 0 (still the caller's default/body texture) -- hair rendered black.
+                // Same fix as mixin.base.BOBJModelVAOMixinBase.
+                GL30.glActiveTexture(GL30.GL_TEXTURE0);
                 BBSModClient.getTextures().bind(texture);
             }
             else
             {
+                GL30.glActiveTexture(GL30.GL_TEXTURE0);
                 GL30.glBindTexture(GL30.GL_TEXTURE_2D, previousTexture);
             }
 
