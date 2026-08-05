@@ -149,7 +149,15 @@ public final class FBXMeshCompiler
             }
         }
 
-        return new FBXCompiledData(pos, tex, norm, weights, bones, indices, mesh, shapeKeyVerticesCompiled, shapeKeyNormalsCompiled);
+        Map<String, FBXShapeKeyDelta> shapeKeyDeltas = new HashMap<>();
+
+        for (Map.Entry<String, float[]> entry : shapeKeyVerticesCompiled.entrySet())
+        {
+            shapeKeyDeltas.put(entry.getKey(), FBXShapeKeyDelta.fromDense(
+                    pos, entry.getValue(), norm, shapeKeyNormalsCompiled.get(entry.getKey())));
+        }
+
+        return new FBXCompiledData(pos, tex, norm, weights, bones, indices, mesh, shapeKeyDeltas);
     }
 
     /**
@@ -295,8 +303,15 @@ public final class FBXMeshCompiler
         int[] indices = new int[totalVertices];
         int[] materialIndex = new int[totalVertices];
 
-        Map<String, float[]> shapeKeyVerticesCompiled = new HashMap<>();
-        Map<String, float[]> shapeKeyNormalsCompiled = new HashMap<>();
+        /* Shape keys are collected into one globally-indexed list up front so
+         * the per-vertex loop below can address them by array slot. It used
+         * to look every key up by name in three HashMaps for every single
+         * vertex, then rescan the whole key set again to fill in the keys the
+         * current mesh doesn't define -- on a 200k-vertex model with 20 blend
+         * shapes that is over 10 million map lookups spent producing what is
+         * almost entirely rest-pose data. */
+        List<String> shapeKeyNames = new java.util.ArrayList<>();
+        Map<String, Integer> shapeKeyIndices = new HashMap<>();
 
         for (BOBJMesh mesh : data.meshes)
         {
@@ -304,11 +319,29 @@ public final class FBXMeshCompiler
             {
                 for (String key : fbxMesh.shapeKeyVertices.keySet())
                 {
-                    shapeKeyVerticesCompiled.putIfAbsent(key, new float[totalVertices * 3]);
-                    shapeKeyNormalsCompiled.putIfAbsent(key, new float[totalVertices * 3]);
+                    if (shapeKeyIndices.putIfAbsent(key, shapeKeyNames.size()) == null)
+                    {
+                        shapeKeyNames.add(key);
+                    }
                 }
             }
         }
+
+        int shapeKeyCount = shapeKeyNames.size();
+        FBXShapeKeyDelta.Builder[] shapeKeyBuilders = new FBXShapeKeyDelta.Builder[shapeKeyCount];
+
+        for (int k = 0; k < shapeKeyCount; k++)
+        {
+            shapeKeyBuilders[k] = new FBXShapeKeyDelta.Builder();
+        }
+
+        /* Per-mesh view of the global key list, refilled once per mesh:
+         * meshShapePositions[k] is the current mesh's data for global key k,
+         * or null when this mesh doesn't define that key (which then
+         * contributes no delta at all, instead of the old code writing a
+         * redundant copy of the rest pose). */
+        float[][] meshShapePositions = new float[shapeKeyCount][];
+        float[][] meshShapeNormals = new float[shapeKeyCount][];
 
         BOBJMesh nameSource = data.meshes.isEmpty() ? null : data.meshes.get(0);
         List<String> materialNames = new java.util.ArrayList<>();
@@ -331,6 +364,25 @@ public final class FBXMeshCompiler
             FBXMesh fbxMesh = mesh instanceof FBXMesh fm ? fm : null;
             int vertexBaseIndex = fbxMesh != null ? fbxMesh.vertexBaseIndex : 0;
             int normalBaseIndex = fbxMesh != null ? fbxMesh.normalBaseIndex : 0;
+
+            /* Flatten this mesh's shape keys into the globally-indexed slots
+             * once per mesh. Flat float[] rather than the source
+             * List<Vector3f>: the vertex loop reads these in triangulated
+             * (i.e. scattered) order, and chasing a boxed Vector3f per read
+             * is what made this loop memory-bound. */
+            java.util.Arrays.fill(meshShapePositions, null);
+            java.util.Arrays.fill(meshShapeNormals, null);
+
+            if (fbxMesh != null && fbxMesh.shapeKeyVertices != null)
+            {
+                for (Map.Entry<String, List<Vector3f>> entry : fbxMesh.shapeKeyVertices.entrySet())
+                {
+                    int k = shapeKeyIndices.get(entry.getKey());
+
+                    meshShapePositions[k] = flatten(entry.getValue());
+                    meshShapeNormals[k] = flatten(fbxMesh.shapeKeyNormals.get(entry.getKey()));
+                }
+            }
 
             for (BOBJLoader.Face face : mesh.faces)
             {
@@ -367,54 +419,38 @@ public final class FBXMeshCompiler
                     pos[pIndex] = vx; pos[pIndex + 1] = vy; pos[pIndex + 2] = vz;
                     norm[pIndex] = nx; norm[pIndex + 1] = ny; norm[pIndex + 2] = nz;
 
-                    if (fbxMesh != null && fbxMesh.shapeKeyVertices != null)
+                    /* Record only what each key actually moves. A key this
+                     * mesh doesn't define, or a vertex outside the key's
+                     * range, sat at the rest pose before and so contributes a
+                     * zero delta -- nothing to store. */
+                    if (shapeKeyCount > 0)
                     {
-                        int localVertIndex = group.idxPos - vertexBaseIndex;
-                        int localNormalIndex = group.idxVecNormal - normalBaseIndex;
+                        int localVertIndex = (group.idxPos - vertexBaseIndex) * 3;
+                        int localNormalIndex = (group.idxVecNormal - normalBaseIndex) * 3;
 
-                        for (String key : fbxMesh.shapeKeyVertices.keySet())
+                        for (int k = 0; k < shapeKeyCount; k++)
                         {
-                            List<Vector3f> shapeVerts = fbxMesh.shapeKeyVertices.get(key);
-                            List<Vector3f> shapeNorms = fbxMesh.shapeKeyNormals.get(key);
+                            float[] shapePositions = meshShapePositions[k];
 
-                            float[] sPos = shapeKeyVerticesCompiled.get(key);
-                            float[] sNorm = shapeKeyNormalsCompiled.get(key);
+                            if (shapePositions != null && localVertIndex >= 0 && localVertIndex + 2 < shapePositions.length)
+                            {
+                                FBXShapeKeyDelta.Builder builder = shapeKeyBuilders[k];
 
-                            if (localVertIndex >= 0 && localVertIndex < shapeVerts.size())
-                            {
-                                Vector3f sv = shapeVerts.get(localVertIndex);
-                                sPos[pIndex] = sv.x; sPos[pIndex + 1] = sv.y; sPos[pIndex + 2] = sv.z;
-                            }
-                            else
-                            {
-                                sPos[pIndex] = vx; sPos[pIndex + 1] = vy; sPos[pIndex + 2] = vz;
+                                appendDelta(builder, pIndex, shapePositions[localVertIndex], vx, true);
+                                appendDelta(builder, pIndex + 1, shapePositions[localVertIndex + 1], vy, true);
+                                appendDelta(builder, pIndex + 2, shapePositions[localVertIndex + 2], vz, true);
                             }
 
-                            if (localNormalIndex >= 0 && localNormalIndex < shapeNorms.size())
-                            {
-                                Vector3f sn = shapeNorms.get(localNormalIndex);
-                                sNorm[pIndex] = sn.x; sNorm[pIndex + 1] = sn.y; sNorm[pIndex + 2] = sn.z;
-                            }
-                            else
-                            {
-                                sNorm[pIndex] = nx; sNorm[pIndex + 1] = ny; sNorm[pIndex + 2] = nz;
-                            }
-                        }
-                    }
+                            float[] shapeNormals = meshShapeNormals[k];
 
-                    /* Meshes/vertices with no contribution to a given key
-                     * (e.g. this vertex's mesh doesn't define that shape key
-                     * at all) still need SOME value written, matching rest
-                     * position - fill any key this mesh didn't touch. */
-                    for (Map.Entry<String, float[]> entry : shapeKeyVerticesCompiled.entrySet())
-                    {
-                        boolean touched = fbxMesh != null && fbxMesh.shapeKeyVertices != null && fbxMesh.shapeKeyVertices.containsKey(entry.getKey());
-                        if (!touched)
-                        {
-                            float[] sPos = entry.getValue();
-                            sPos[pIndex] = vx; sPos[pIndex + 1] = vy; sPos[pIndex + 2] = vz;
-                            float[] sNorm = shapeKeyNormalsCompiled.get(entry.getKey());
-                            sNorm[pIndex] = nx; sNorm[pIndex + 1] = ny; sNorm[pIndex + 2] = nz;
+                            if (shapeNormals != null && localNormalIndex >= 0 && localNormalIndex + 2 < shapeNormals.length)
+                            {
+                                FBXShapeKeyDelta.Builder builder = shapeKeyBuilders[k];
+
+                                appendDelta(builder, pIndex, shapeNormals[localNormalIndex], nx, false);
+                                appendDelta(builder, pIndex + 1, shapeNormals[localNormalIndex + 1], ny, false);
+                                appendDelta(builder, pIndex + 2, shapeNormals[localNormalIndex + 2], nz, false);
+                            }
                         }
                     }
 
@@ -459,9 +495,61 @@ public final class FBXMeshCompiler
             }
         }
 
-        FBXCompiledData compiled = new FBXCompiledData(pos, tex, norm, weights, bones, indices, nameSource, shapeKeyVerticesCompiled, shapeKeyNormalsCompiled);
+        Map<String, FBXShapeKeyDelta> shapeKeyDeltas = new HashMap<>();
+
+        for (int k = 0; k < shapeKeyCount; k++)
+        {
+            FBXShapeKeyDelta delta = shapeKeyBuilders[k].build();
+
+            if (!delta.isEmpty())
+            {
+                shapeKeyDeltas.put(shapeKeyNames.get(k), delta);
+            }
+        }
+
+        FBXCompiledData compiled = new FBXCompiledData(pos, tex, norm, weights, bones, indices, nameSource, shapeKeyDeltas);
         compiled.setMaterialSplit(materialIndex, materialNames.toArray(new String[0]));
 
         return compiled;
+    }
+
+    /** Records one component's shape-key offset, skipping the (overwhelmingly common) case of it not moving at all. */
+    private static void appendDelta(FBXShapeKeyDelta.Builder builder, int component, float shapeValue, float restValue, boolean position)
+    {
+        if (shapeValue == restValue)
+        {
+            return;
+        }
+
+        if (position)
+        {
+            builder.position(component, shapeValue - restValue);
+        }
+        else
+        {
+            builder.normal(component, shapeValue - restValue);
+        }
+    }
+
+    /** Packs a {@code Vector3f} list into a flat xyz array for cache-friendly random access. */
+    private static float[] flatten(List<Vector3f> source)
+    {
+        if (source == null)
+        {
+            return null;
+        }
+
+        float[] flat = new float[source.size() * 3];
+        int i = 0;
+
+        for (Vector3f vector : source)
+        {
+            flat[i] = vector.x;
+            flat[i + 1] = vector.y;
+            flat[i + 2] = vector.z;
+            i += 3;
+        }
+
+        return flat;
     }
 }

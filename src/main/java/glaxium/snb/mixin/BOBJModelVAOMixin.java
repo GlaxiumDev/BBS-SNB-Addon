@@ -1,6 +1,7 @@
 package glaxium.snb.mixin;
 
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
+import glaxium.snb.model.fbx.loaders.FBXShapeKeyDelta;
 import glaxium.snb.model.fbx.loaders.IShapeKeyHolder;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
@@ -8,12 +9,8 @@ import mchorse.bbs_mod.bobj.BOBJLoader;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 import mchorse.bbs_mod.obj.shapes.ShapeKeys;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
-import mchorse.bbs_mod.utils.joml.Matrices;
 
-import org.joml.Matrix3f;
 import org.joml.Matrix4f;
-import org.joml.Vector3f;
-import org.joml.Vector4f;
 import org.lwjgl.opengl.GL15;
 
 import org.spongepowered.asm.mixin.Mixin;
@@ -31,19 +28,19 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Fully replaces {@code BOBJModelVAO.updateMesh} to blend
- * {@code FBXCompiledData}'s shape-key vertex/normal deltas by the live
- * {@link ShapeKeys} weights BEFORE the bone-skinning blend, reusing the
- * same skinning/lighting math the host's own {@code updateMesh} uses so
- * behavior is identical when no shape keys are active.
+ * Fully replaces {@code BOBJModelVAO.updateMesh} with a faster equivalent:
+ * same skinning and lighting results as the host, but with the per-frame
+ * work reduced to what actually changed since the last frame, and the inner
+ * vertex loop rewritten to run on flat float arrays instead of JOML objects.
+ * It also blends {@code FBXCompiledData}'s shape keys by the live
+ * {@link ShapeKeys} weights before the bone skinning, which the host has no
+ * concept of.
  *
  * <p>Fork-agnostic: every {@code @Shadow}'d field and the {@code updateMesh}
  * signature below are byte-for-byte identical across the Base 1.7.7-1.20.4
  * and BBS CML EDITION 2.0-beta-1-1.20.4 jars (checked directly), and match
- * what the FS-targeted sibling addon already relies on. This addon only
- * supports one texture (or one flat color) per model, same as the host's own
- * {@code render()} already handles natively, so nothing here touches texture
- * binding or draw calls -- that divergence lives entirely in
+ * what the FS-targeted sibling addon already relies on. Nothing here touches
+ * texture binding or draw calls -- that divergence lives entirely in
  * {@code ModelInstanceMixin} (see {@code mixin/base}, {@code mixin/fs},
  * {@code mixin/cml}), which is the one spot where Base, FS and CML actually
  * disagree.</p>
@@ -65,64 +62,83 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
     @Shadow protected abstract void processData(float[] newVertices, float[] newNormals);
 
-    /**
-     * Scratch buffers for the shape-key-blended vertex/normal data before
-     * bone skinning - reused across calls instead of allocating two fresh
-     * {@code float[]} arrays (sized to the model's full vertex count) every
-     * single {@code updateMesh} call that has any active shape-key weight.
-     * Same "allocate once, reuse forever" pattern the host itself already
-     * uses for {@code tmpVertices}/{@code tmpNormals} above. Re-allocated
-     * only if the required length changes (model swap) - a plain length
-     * check, no extra bookkeeping needed since {@code oldVertices.length}
-     * is already read fresh every call.
-     */
-    private float[] bbsFbx$morphedVertices = new float[0];
-    private float[] bbsFbx$morphedNormals = new float[0];
-
-    @Unique
-    private float[] bbsFbx$morphScratch(float[] current, int length)
-    {
-        return current.length == length ? current : new float[length];
-    }
+    // ---------------------------------------------------------------
+    // Bone matrices, flattened
+    // ---------------------------------------------------------------
 
     /**
-     * Precomputed per-bone normal (3x3) matrices, reused across the entire
-     * vertex loop for a single {@code updateMesh} call instead of rebuilding
-     * one via {@code Matrices.TEMP_3F.set(matrices[index])} every time a
-     * vertex-weight pair references that bone. There are only
-     * {@code matrices.length} unique bones, but up to {@code count * 4}
-     * vertex-weight pairs - on a high-poly skinned FBX (hundreds of
-     * thousands of vertices, ~100 bones) the old per-weight conversion redid
-     * the same handful of 3x3s hundreds of thousands of times over, every
-     * single frame an animation is actually playing. Building this array
-     * once per call turns that into O(bones) instead of O(vertices).
-     * Allocate-once-reuse-forever, same as the morph scratch buffers above -
-     * only rebuilt (new {@code Matrix3f} instances) when the bone count
-     * itself changes.
+     * Every bone's matrix packed into one flat {@code float[]}, 16 floats
+     * apiece in JOML's own column-major order ({@code Matrix4f.get}), rebuilt
+     * once per frame.
+     *
+     * <p>The host's loop reaches through a {@code Matrix4f} object per
+     * vertex-weight pair and, worse, rebuilds a {@code Matrix3f} normal
+     * matrix from scratch on every one of those pairs
+     * ({@code Matrices.TEMP_3F.set(matrices[index])}). There are only
+     * {@code matrices.length} distinct bones but up to {@code count * 4}
+     * vertex-weight pairs, so a 650k-vertex model with 123 bones redid the
+     * same 123 conversions upwards of two million times per frame.</p>
+     *
+     * <p>Flattening also removes the object indirection from the inner loop
+     * entirely: reading {@code bones[offset + n]} is a bounds-checked array
+     * load the JIT can keep in registers and unroll, where
+     * {@code matrices[index].transform(v)} is a virtual call that loads and
+     * stores through two separate objects. The 3x3 normal matrix needs no
+     * storage of its own -- it is literally the upper-left block of the same
+     * 16 floats, so the normal transform below just omits the translation
+     * terms.</p>
      */
-    private Matrix3f[] bbsFbx$normalMatrices = new Matrix3f[0];
+    @Unique
+    private float[] bbsFbx$boneMatrices = new float[0];
 
     @Unique
-    private Matrix3f[] bbsFbx$normalMatrixScratch(int boneCount)
+    private float[] bbsFbx$boneMatrixScratch(int boneCount)
     {
-        if (this.bbsFbx$normalMatrices.length != boneCount)
+        int required = boneCount * 16;
+
+        if (this.bbsFbx$boneMatrices.length != required)
         {
-            Matrix3f[] fresh = new Matrix3f[boneCount];
-
-            for (int i = 0; i < boneCount; i++)
-            {
-                fresh[i] = new Matrix3f();
-            }
-
-            this.bbsFbx$normalMatrices = fresh;
+            this.bbsFbx$boneMatrices = new float[required];
         }
 
-        return this.bbsFbx$normalMatrices;
+        return this.bbsFbx$boneMatrices;
     }
 
     /**
-     * Worker pool the skin loop below splits across when a model is big
-     * enough to make dispatch worth it (see {@link #bbsFbx$PARALLEL_THRESHOLD}).
+     * True when no bone carries a projective row, which is the case for every
+     * armature BBS actually builds (bone matrices are only ever composed from
+     * translation, rotation and scale).
+     *
+     * <p>Worth an O(bones) check once per frame because it lets the vertex
+     * loop drop the {@code w} row entirely: with {@code m03/m13/m23} zero and
+     * {@code m33} one, that row evaluates to exactly 1 for every vertex, so
+     * the homogeneous divisor is just the sum of the weights. That removes
+     * four multiply-adds per bone influence -- roughly a fifth of the
+     * arithmetic in the loop -- without changing a single output bit.</p>
+     */
+    @Unique
+    private boolean bbsFbx$allBonesAffine(float[] bones, int boneCount)
+    {
+        for (int b = 0; b < boneCount; b++)
+        {
+            int m = b * 16;
+
+            if (bones[m + 3] != 0F || bones[m + 7] != 0F || bones[m + 11] != 0F || bones[m + 15] != 1F)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // ---------------------------------------------------------------
+    // Parallel skinning
+    // ---------------------------------------------------------------
+
+    /**
+     * Worker pool the skin loop splits across when a model is big enough to
+     * make dispatch worth it (see {@link #bbsFbx$PARALLEL_THRESHOLD}).
      * {@code count - 1} threads, not {@code count}: this runs on the render
      * thread, which does its own share of the work as "chunk 0" rather than
      * sitting idle waiting on the pool. Static + shared across every VAO
@@ -133,11 +149,11 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      *
      * <p>Daemon threads: never blocks JVM shutdown, no explicit teardown
      * needed. Deliberately NOT touching any GL state -- worker tasks only
-     * ever write into disjoint slices of {@code newVertices}/{@code newNormals}/
-     * {@code tmpLight} (each vertex index is owned by exactly one chunk) and
-     * read {@code matrices}/{@code normalMatrices} (read-only from every
-     * thread once built). The actual {@code glBufferData} calls after the
-     * loop stay on the render thread, same as before -- OpenGL contexts are
+     * ever write into disjoint slices of {@code newVertices}/
+     * {@code newNormals} (each vertex index is owned by exactly one chunk)
+     * and read the geometry and bone arrays (read-only from every thread
+     * once built). The actual {@code glBufferData} calls after the loop stay
+     * on the render thread, same as before -- OpenGL contexts are
      * thread-bound and none of that is safe to move.</p>
      */
     private static final int bbsFbx$WORKER_COUNT = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
@@ -153,15 +169,19 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
     /**
      * Below this vertex count the loop just runs single-threaded on the
-     * render thread, same as before this change -- splitting work across
-     * threads costs a fixed amount of dispatch/join overhead no matter how
-     * small the job is, and for a handful of thousand vertices that
-     * overhead is bigger than the loop itself. 20,000 is comfortably above
-     * typical prop/character meshes (where the old single-threaded path is
-     * already sub-millisecond) and comfortably below where a high-poly FBX
-     * (hundreds of thousands of vertices) actually saturates a core.
+     * render thread -- splitting work across threads costs a fixed amount of
+     * dispatch/join overhead no matter how small the job is, and for a
+     * handful of thousand vertices that overhead is bigger than the loop
+     * itself. 20,000 is comfortably above typical prop/character meshes
+     * (where the single-threaded path is already sub-millisecond) and
+     * comfortably below where a high-poly FBX (hundreds of thousands of
+     * vertices) actually saturates a core.
      */
     private static final int bbsFbx$PARALLEL_THRESHOLD = 20_000;
+
+    // ---------------------------------------------------------------
+    // Pose cache
+    // ---------------------------------------------------------------
 
     /**
      * Pose cache: skips the entire per-frame CPU skinning + GL re-upload when
@@ -232,17 +252,10 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         float[] sig = this.bbsFbx$poseScratch;
         int p = 0;
 
-        if (matrices != null)
+        for (int i = 0; i < matrixCount; i++)
         {
-            for (int i = 0; i < matrixCount; i++)
-            {
-                Matrix4f m = matrices[i];
-                sig[p] = m.m00(); sig[p + 1] = m.m01(); sig[p + 2] = m.m02(); sig[p + 3] = m.m03();
-                sig[p + 4] = m.m10(); sig[p + 5] = m.m11(); sig[p + 6] = m.m12(); sig[p + 7] = m.m13();
-                sig[p + 8] = m.m20(); sig[p + 9] = m.m21(); sig[p + 10] = m.m22(); sig[p + 11] = m.m23();
-                sig[p + 12] = m.m30(); sig[p + 13] = m.m31(); sig[p + 14] = m.m32(); sig[p + 15] = m.m33();
-                p += 16;
-            }
+            matrices[i].get(sig, p);
+            p += 16;
         }
 
         sig[p] = stencilMap != null && stencilMap.increment ? 1.0f : 0.0f;
@@ -264,6 +277,97 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         return false;
     }
 
+    // ---------------------------------------------------------------
+    // Lightmap cache
+    // ---------------------------------------------------------------
+
+    /**
+     * The stencil lightmap buffer only ever depends on things that never
+     * change while a model is loaded, so it is built (and uploaded) once
+     * instead of every frame.
+     *
+     * <p>Each vertex's entry is the index of its heaviest-weighted bone, or
+     * 0 when {@code stencilMap.increment} is false. Bone weights live in
+     * {@code CompiledData} and are fixed at load, so for a given
+     * {@code (data, increment)} pair the whole {@code int[]} is a constant --
+     * yet the host recomputed it inside the skinning loop and re-uploaded the
+     * entire buffer on every frame the stencil map was active. On a 650k
+     * vertex model that is a wasted 5 MB upload plus 1.3 million redundant
+     * array writes per frame. Nothing else writes {@code lightBuffer}, so
+     * once the correct contents are on the GPU they stay correct until the
+     * model itself changes.</p>
+     */
+    @Unique
+    private boolean bbsFbx$lightValid;
+
+    @Unique
+    private boolean bbsFbx$lightIncrement;
+
+    @Unique
+    private Object bbsFbx$lightDataRef;
+
+    /** @return true when the buffer was (re)built and therefore needs uploading. */
+    @Unique
+    private boolean bbsFbx$rebuildLightIfStale(StencilMap stencilMap)
+    {
+        if (stencilMap == null)
+        {
+            return false;
+        }
+
+        boolean increment = stencilMap.increment;
+
+        if (this.bbsFbx$lightValid && this.bbsFbx$lightIncrement == increment && this.bbsFbx$lightDataRef == this.data)
+        {
+            return false;
+        }
+
+        int[] light = this.tmpLight;
+        int vertexCount = this.count;
+
+        if (!increment)
+        {
+            Arrays.fill(light, 0, Math.min(light.length, vertexCount * 2), 0);
+        }
+        else
+        {
+            float[] weightData = this.data.weightData;
+            int[] boneIndexData = this.data.boneIndexData;
+
+            for (int i = 0; i < vertexCount; i++)
+            {
+                int b = i * 4;
+                float maxWeight = -1F;
+                int lightBone = -1;
+
+                for (int w = 0; w < 4; w++)
+                {
+                    float weight = weightData[b + w];
+
+                    if (weight > 0F && weight > maxWeight)
+                    {
+                        lightBone = boneIndexData[b + w];
+                        maxWeight = weight;
+                    }
+                }
+
+                light[i * 2] = Math.max(0, lightBone);
+                light[i * 2 + 1] = 0;
+            }
+        }
+
+        this.bbsFbx$lightValid = true;
+        this.bbsFbx$lightIncrement = increment;
+        this.bbsFbx$lightDataRef = this.data;
+
+        return true;
+    }
+
+    // ---------------------------------------------------------------
+    // Shape keys
+    // ---------------------------------------------------------------
+
+    @Unique
     private ShapeKeys bbsFbx$shapeKeys;
 
     @Override
@@ -272,23 +376,180 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         this.bbsFbx$shapeKeys = shapeKeys;
     }
 
-    // ---------------------------------------------------------------
-    // Skinning (shape keys + per-bone normal-matrix cache)
-    // ---------------------------------------------------------------
+    /**
+     * Shape-key-blended geometry, fed into the skinning pass in place of the
+     * rest pose. Allocated once and reused, same "allocate once, reuse
+     * forever" pattern the host uses for {@code tmpVertices}/
+     * {@code tmpNormals}.
+     */
+    @Unique
+    private float[] bbsFbx$morphedVertices = new float[0];
+
+    @Unique
+    private float[] bbsFbx$morphedNormals = new float[0];
 
     /**
-     * Was shape-key-only ({@code bbsFbx$updateMeshWithShapeKeys}): it took
-     * over from the host's {@code updateMesh} only when shape keys were
-     * active, so any ordinarily-animated model (armature playing, no shape
-     * keys) fell through to the host's own copy of this exact loop every
-     * single frame -- including the host's per-vertex-weight
-     * {@code Matrices.TEMP_3F.set(matrices[index])} normal-matrix rebuild
-     * (see {@link #bbsFbx$normalMatrices} doc). Now takes over unconditionally
-     * for any real pose change (the pose cache above still short-circuits
-     * unchanged frames exactly as before), so every animated model gets the
-     * bone-matrix cache, not just shape-keyed ones. The shape-key blend
-     * itself is untouched and still only runs when active.
+     * Components written by last frame's blend, so the next frame can undo
+     * exactly those instead of memcpy'ing the entire rest pose back over the
+     * morph buffers. On a 650k-vertex model that copy alone is ~16 MB of
+     * memory traffic per frame, to overwrite data that a blend shape barely
+     * touches. Cleared to a full copy whenever the model changes, or when a
+     * frame dirties more components than the buffer can track (see
+     * {@link #bbsFbx$markDirty}).
      */
+    @Unique
+    private int[] bbsFbx$dirtyPositions = new int[0];
+
+    @Unique
+    private int bbsFbx$dirtyPositionCount;
+
+    @Unique
+    private int[] bbsFbx$dirtyNormals = new int[0];
+
+    @Unique
+    private int bbsFbx$dirtyNormalCount;
+
+    @Unique
+    private boolean bbsFbx$morphBaseValid;
+
+    @Unique
+    private Object bbsFbx$morphDataRef;
+
+    /**
+     * Blends every active shape key into the morph buffers and leaves them
+     * ready for skinning.
+     */
+    @Unique
+    private void bbsFbx$blendShapeKeys(FBXCompiledData fbxData, float[] restVertices, float[] restNormals)
+    {
+        boolean resized = this.bbsFbx$morphedVertices.length != restVertices.length
+                || this.bbsFbx$morphedNormals.length != restNormals.length;
+
+        if (resized)
+        {
+            this.bbsFbx$morphedVertices = new float[restVertices.length];
+            this.bbsFbx$morphedNormals = new float[restNormals.length];
+        }
+
+        float[] morphedVertices = this.bbsFbx$morphedVertices;
+        float[] morphedNormals = this.bbsFbx$morphedNormals;
+
+        if (resized || !this.bbsFbx$morphBaseValid || this.bbsFbx$morphDataRef != this.data)
+        {
+            System.arraycopy(restVertices, 0, morphedVertices, 0, restVertices.length);
+            System.arraycopy(restNormals, 0, morphedNormals, 0, restNormals.length);
+
+            this.bbsFbx$morphBaseValid = true;
+            this.bbsFbx$morphDataRef = this.data;
+        }
+        else
+        {
+            int[] dirtyPositions = this.bbsFbx$dirtyPositions;
+
+            for (int i = 0, n = this.bbsFbx$dirtyPositionCount; i < n; i++)
+            {
+                int component = dirtyPositions[i];
+
+                morphedVertices[component] = restVertices[component];
+            }
+
+            int[] dirtyNormals = this.bbsFbx$dirtyNormals;
+
+            for (int i = 0, n = this.bbsFbx$dirtyNormalCount; i < n; i++)
+            {
+                int component = dirtyNormals[i];
+
+                morphedNormals[component] = restNormals[component];
+            }
+        }
+
+        this.bbsFbx$dirtyPositionCount = 0;
+        this.bbsFbx$dirtyNormalCount = 0;
+
+        for (Map.Entry<String, Float> entry : this.bbsFbx$shapeKeys.shapeKeys.entrySet())
+        {
+            float weight = entry.getValue();
+
+            if (weight == 0F)
+            {
+                continue;
+            }
+
+            FBXShapeKeyDelta delta = fbxData.shapeKeyDeltas.get(entry.getKey());
+
+            if (delta == null)
+            {
+                continue;
+            }
+
+            int[] positionIndices = delta.positionIndices;
+            float[] positionDeltas = delta.positionDeltas;
+
+            for (int i = 0; i < positionIndices.length; i++)
+            {
+                morphedVertices[positionIndices[i]] += weight * positionDeltas[i];
+            }
+
+            int[] normalIndices = delta.normalIndices;
+            float[] normalDeltas = delta.normalDeltas;
+
+            for (int i = 0; i < normalIndices.length; i++)
+            {
+                morphedNormals[normalIndices[i]] += weight * normalDeltas[i];
+            }
+
+            this.bbsFbx$markDirty(positionIndices, normalIndices);
+        }
+    }
+
+    /**
+     * Appends one key's touched components to the restore lists. If the lists
+     * would grow past the size of the buffers they undo, tracking is
+     * abandoned and the next frame falls back to a full copy -- the restore
+     * would cost more than the memcpy it is avoiding at that point, and this
+     * keeps the lists from outgrowing the geometry itself.
+     */
+    @Unique
+    private void bbsFbx$markDirty(int[] positionIndices, int[] normalIndices)
+    {
+        if (!this.bbsFbx$morphBaseValid)
+        {
+            return;
+        }
+
+        int positions = this.bbsFbx$dirtyPositionCount + positionIndices.length;
+        int normals = this.bbsFbx$dirtyNormalCount + normalIndices.length;
+
+        if (positions > this.bbsFbx$morphedVertices.length || normals > this.bbsFbx$morphedNormals.length)
+        {
+            this.bbsFbx$morphBaseValid = false;
+
+            return;
+        }
+
+        if (this.bbsFbx$dirtyPositions.length < positions)
+        {
+            this.bbsFbx$dirtyPositions = Arrays.copyOf(this.bbsFbx$dirtyPositions,
+                    Math.max(positions, this.bbsFbx$dirtyPositions.length * 2));
+        }
+
+        if (this.bbsFbx$dirtyNormals.length < normals)
+        {
+            this.bbsFbx$dirtyNormals = Arrays.copyOf(this.bbsFbx$dirtyNormals,
+                    Math.max(normals, this.bbsFbx$dirtyNormals.length * 2));
+        }
+
+        System.arraycopy(positionIndices, 0, this.bbsFbx$dirtyPositions, this.bbsFbx$dirtyPositionCount, positionIndices.length);
+        System.arraycopy(normalIndices, 0, this.bbsFbx$dirtyNormals, this.bbsFbx$dirtyNormalCount, normalIndices.length);
+
+        this.bbsFbx$dirtyPositionCount = positions;
+        this.bbsFbx$dirtyNormalCount = normals;
+    }
+
+    // ---------------------------------------------------------------
+    // updateMesh
+    // ---------------------------------------------------------------
+
     @Inject(method = "updateMesh", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$updateMeshOptimized(StencilMap stencilMap, CallbackInfo info)
     {
@@ -298,7 +559,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
          * output depends on the per-frame key weights. */
         boolean shapeKeysActive = this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty()
                 && this.data instanceof FBXCompiledData fbxCheck
-                && fbxCheck.shapeKeyVertices != null && !fbxCheck.shapeKeyVertices.isEmpty();
+                && fbxCheck.shapeKeyDeltas != null && !fbxCheck.shapeKeyDeltas.isEmpty();
 
         boolean unchanged = this.bbsFbx$poseUnchanged(stencilMap);
 
@@ -330,89 +591,50 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             return;
         }
 
-        /* From here on this always takes over the skin -- not just for
-         * shape-keyed models. This is the exact same skinning/lighting math
-         * the host's own updateMesh runs (see class doc); the shape-key
-         * blend below is skipped entirely when inactive (same as the host
-         * never doing it), and the per-bone normal-matrix cache is the only
-         * real behavioral difference from the host's loop -- it changes
-         * nothing about the output, just how many times the same handful of
-         * 3x3s get built. */
         info.cancel();
 
-        float[] oldVertices = this.data.posData;
-        float[] oldNormals = this.data.normData;
+        float[] restVertices = this.data.posData;
+        float[] restNormals = this.data.normData;
 
-        float[] morphedVertices = oldVertices;
-        float[] morphedNormals = oldNormals;
+        float[] sourceVertices = restVertices;
+        float[] sourceNormals = restNormals;
 
         if (shapeKeysActive)
         {
-            FBXCompiledData fbxData = (FBXCompiledData) this.data;
+            this.bbsFbx$blendShapeKeys((FBXCompiledData) this.data, restVertices, restNormals);
 
-            this.bbsFbx$morphedVertices = this.bbsFbx$morphScratch(this.bbsFbx$morphedVertices, oldVertices.length);
-            morphedVertices = this.bbsFbx$morphedVertices;
-            System.arraycopy(oldVertices, 0, morphedVertices, 0, oldVertices.length);
-
-            this.bbsFbx$morphedNormals = this.bbsFbx$morphScratch(this.bbsFbx$morphedNormals, oldNormals.length);
-            morphedNormals = this.bbsFbx$morphedNormals;
-            System.arraycopy(oldNormals, 0, morphedNormals, 0, oldNormals.length);
-
-            for (Map.Entry<String, Float> entry : this.bbsFbx$shapeKeys.shapeKeys.entrySet())
-            {
-                float weight = entry.getValue();
-
-                if (weight == 0F)
-                {
-                    continue;
-                }
-
-                float[] shapeVerts = fbxData.shapeKeyVertices.get(entry.getKey());
-                float[] shapeNorms = fbxData.shapeKeyNormals.get(entry.getKey());
-
-                if (shapeVerts != null)
-                {
-                    for (int i = 0; i < morphedVertices.length; i++)
-                    {
-                        morphedVertices[i] += weight * (shapeVerts[i] - oldVertices[i]);
-                    }
-                }
-
-                if (shapeNorms != null)
-                {
-                    for (int i = 0; i < morphedNormals.length; i++)
-                    {
-                        morphedNormals[i] += weight * (shapeNorms[i] - oldNormals[i]);
-                    }
-                }
-            }
+            sourceVertices = this.bbsFbx$morphedVertices;
+            sourceNormals = this.bbsFbx$morphedNormals;
         }
 
-        /* Per-bone normal-matrix cache: build all matrices.length 3x3s once
-         * up front instead of once per vertex-weight pair inside the loop
-         * below (see field doc on bbsFbx$normalMatrices). */
-        Matrix3f[] normalMatrices = this.bbsFbx$normalMatrixScratch(matrices.length);
+        float[] bones = this.bbsFbx$boneMatrixScratch(matrices.length);
 
         for (int b = 0; b < matrices.length; b++)
         {
-            normalMatrices[b].set(matrices[b]);
+            matrices[b].get(bones, b * 16);
         }
 
         float[] newVertices = this.tmpVertices;
         float[] newNormals = this.tmpNormals;
+        float[] weightData = this.data.weightData;
+        int[] boneIndexData = this.data.boneIndexData;
 
         int vertexCount = this.count;
 
+        boolean affine = this.bbsFbx$allBonesAffine(bones, matrices.length);
+
         if (bbsFbx$pool != null && vertexCount >= bbsFbx$PARALLEL_THRESHOLD)
         {
-            this.bbsFbx$skinParallel(morphedVertices, morphedNormals, matrices, normalMatrices,
-                    newVertices, newNormals, stencilMap, vertexCount);
+            this.bbsFbx$skinParallel(sourceVertices, sourceNormals, bones, weightData, boneIndexData,
+                    newVertices, newNormals, affine, vertexCount);
         }
         else
         {
-            this.bbsFbx$skinRange(morphedVertices, morphedNormals, matrices, normalMatrices,
-                    newVertices, newNormals, stencilMap, 0, vertexCount);
+            this.bbsFbx$skinRange(sourceVertices, sourceNormals, bones, weightData, boneIndexData,
+                    newVertices, newNormals, affine, 0, vertexCount);
         }
+
+        boolean lightChanged = this.bbsFbx$rebuildLightIfStale(stencilMap);
 
         this.processData(newVertices, newNormals);
 
@@ -430,7 +652,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpTangents, GL15.GL_DYNAMIC_DRAW);
         }
 
-        if (stencilMap != null)
+        if (lightChanged)
         {
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.lightBuffer);
             GL15.glBufferData(GL15.GL_ARRAY_BUFFER, this.tmpLight, GL15.GL_DYNAMIC_DRAW);
@@ -443,10 +665,10 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      * Splits {@code [0, vertexCount)} into {@code bbsFbx$WORKER_COUNT + 1}
      * contiguous chunks -- one run inline on the calling (render) thread,
      * the rest submitted to {@link #bbsFbx$pool} -- and blocks until every
-     * chunk has written its slice of {@code newVertices}/{@code newNormals}/
-     * {@code tmpLight}. Each chunk only ever touches indices inside its own
-     * range, so there's no synchronization needed on the output arrays
-     * themselves, only on "has every chunk finished" (the latch).
+     * chunk has written its slice of {@code newVertices}/{@code newNormals}.
+     * Each chunk only ever touches indices inside its own range, so there's
+     * no synchronization needed on the output arrays themselves, only on
+     * "has every chunk finished" (the latch).
      *
      * <p>Any exception thrown inside a worker chunk is captured (the pool's
      * {@code Runnable} can't just throw - nothing would catch it) and
@@ -456,8 +678,8 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      */
     @Unique
     private void bbsFbx$skinParallel(
-            float[] morphedVertices, float[] morphedNormals, Matrix4f[] matrices, Matrix3f[] normalMatrices,
-            float[] newVertices, float[] newNormals, StencilMap stencilMap, int vertexCount)
+            float[] positions, float[] normals, float[] bones, float[] weightData, int[] boneIndexData,
+            float[] newVertices, float[] newNormals, boolean affine, int vertexCount)
     {
         int chunks = bbsFbx$WORKER_COUNT + 1;
         int chunkSize = (vertexCount + chunks - 1) / chunks;
@@ -465,7 +687,6 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         CountDownLatch latch = new CountDownLatch(chunks - 1);
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
 
-        int ownStart = 0;
         int ownEnd = Math.min(vertexCount, chunkSize);
 
         for (int c = 1; c < chunks; c++)
@@ -476,6 +697,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             if (start >= end)
             {
                 latch.countDown();
+
                 continue;
             }
 
@@ -483,8 +705,8 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             {
                 try
                 {
-                    this.bbsFbx$skinRange(morphedVertices, morphedNormals, matrices, normalMatrices,
-                            newVertices, newNormals, stencilMap, start, end);
+                    this.bbsFbx$skinRange(positions, normals, bones, weightData, boneIndexData,
+                            newVertices, newNormals, affine, start, end);
                 }
                 catch (RuntimeException e)
                 {
@@ -500,10 +722,10 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         // The render thread does its own share of the work instead of just
         // waiting on the pool - "chunk 0" isn't free labor for the workers,
         // it's the calling thread pulling its own weight too.
-        if (ownStart < ownEnd)
+        if (ownEnd > 0)
         {
-            this.bbsFbx$skinRange(morphedVertices, morphedNormals, matrices, normalMatrices,
-                    newVertices, newNormals, stencilMap, ownStart, ownEnd);
+            this.bbsFbx$skinRange(positions, normals, bones, weightData, boneIndexData,
+                    newVertices, newNormals, affine, 0, ownEnd);
         }
 
         try
@@ -513,6 +735,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         catch (InterruptedException e)
         {
             Thread.currentThread().interrupt();
+
             throw new RuntimeException("Interrupted while waiting on FBX skinning workers", e);
         }
 
@@ -525,85 +748,284 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     }
 
     /**
-     * The actual skin math for vertices {@code [start, end)} -- identical to
-     * the single-threaded loop this replaced, just bounded to a sub-range
-     * and with its own local scratch vectors (required for this to be safe
-     * to call from multiple threads at once: {@code sum}/{@code result}/
-     * {@code sumNormal}/{@code resultNormal} used to be shared method-locals
-     * reused every iteration, which is exactly the kind of state that can't
-     * be shared across threads). {@code matrices}/{@code normalMatrices} are
-     * read-only here and already fully built before any chunk starts, and
-     * every write below lands at index {@code i}, which belongs to exactly
-     * one chunk - no two chunks ever touch the same array slot.
+     * Linear-blend skinning for vertices {@code [start, end)}, producing the
+     * exact same values as the host's loop with none of its object traffic:
+     * no {@code Vector4f}/{@code Vector3f} scratch instances, no per-weight
+     * {@code Matrix3f} rebuild, and the geometry/weight arrays hoisted into
+     * locals instead of being re-read through {@code this.data} on every one
+     * of the four weight slots per vertex.
+     *
+     * <p>Takes everything it needs as parameters and keeps no scratch state,
+     * so it is trivially safe to run from several threads at once:
+     * {@code bones}/{@code weightData}/{@code boneIndexData} are read-only
+     * and fully built before any chunk starts, and every write lands at an
+     * index owned by exactly one chunk.</p>
+     *
+     * <p>The final perspective divide is skipped when {@code w} came out at
+     * exactly 1 -- the usual outcome for affine bone matrices with weights
+     * summing to one, which covers rigidly-parented props outright -- and is
+     * otherwise done as a single reciprocal shared by all three components
+     * rather than three separate divides.</p>
      */
     @Unique
     private void bbsFbx$skinRange(
-            float[] morphedVertices, float[] morphedNormals, Matrix4f[] matrices, Matrix3f[] normalMatrices,
-            float[] newVertices, float[] newNormals, StencilMap stencilMap, int start, int end)
+            float[] positions, float[] normals, float[] bones, float[] weightData, int[] boneIndexData,
+            float[] newVertices, float[] newNormals, boolean affine, int start, int end)
     {
-        Vector4f sum = new Vector4f();
-        Vector4f result = new Vector4f(0F, 0F, 0F, 0F);
-        Vector3f sumNormal = new Vector3f();
-        Vector3f resultNormal = new Vector3f();
+        if (affine)
+        {
+            this.bbsFbx$skinRangeAffine(positions, normals, bones, weightData, boneIndexData,
+                    newVertices, newNormals, start, end);
+        }
+        else
+        {
+            this.bbsFbx$skinRangeProjective(positions, normals, bones, weightData, boneIndexData,
+                    newVertices, newNormals, start, end);
+        }
+    }
 
+    /**
+     * Skinning for armatures with no projective row (see
+     * {@link #bbsFbx$allBonesAffine}) -- every armature BBS builds, so this
+     * is the path that actually runs.
+     *
+     * <p>Two things it does that the general version can't. The homogeneous
+     * divisor is accumulated as a plain sum of weights instead of evaluating
+     * a row of the matrix that is known to come out at 1. And a vertex owned
+     * outright by a single bone at full weight -- every vertex of a rigidly
+     * parented object, and a good share of an ordinary character's -- skips
+     * the accumulators, the per-influence weight multiply and the divide, and
+     * writes the transformed vertex straight out.</p>
+     *
+     * <p>Both shortcuts are exact, not approximations: multiplying by a
+     * weight of exactly 1 is the identity, dividing by a divisor of exactly 1
+     * is the identity, and the omitted matrix row provably evaluates to 1.
+     * The results are bit-for-bit what the general path (and the host's own
+     * loop) produce.</p>
+     */
+    @Unique
+    private void bbsFbx$skinRangeAffine(
+            float[] positions, float[] normals, float[] bones, float[] weightData, int[] boneIndexData,
+            float[] newVertices, float[] newNormals, int start, int end)
+    {
         for (int i = start; i < end; i++)
         {
-            int boneCount = 0;
-            float maxWeight = -1;
-            int lightBone = -1;
+            int p = i * 3;
+            int b = i * 4;
+
+            float x = positions[p];
+            float y = positions[p + 1];
+            float z = positions[p + 2];
+
+            float nx = normals[p];
+            float ny = normals[p + 1];
+            float nz = normals[p + 2];
+
+            if (weightData[b] == 1F && weightData[b + 1] <= 0F && weightData[b + 2] <= 0F && weightData[b + 3] <= 0F)
+            {
+                int m = boneIndexData[b] * 16;
+
+                float m00 = bones[m];
+                float m01 = bones[m + 1];
+                float m02 = bones[m + 2];
+                float m10 = bones[m + 4];
+                float m11 = bones[m + 5];
+                float m12 = bones[m + 6];
+                float m20 = bones[m + 8];
+                float m21 = bones[m + 9];
+                float m22 = bones[m + 10];
+
+                newVertices[p] = m00 * x + (m10 * y + (m20 * z + bones[m + 12]));
+                newVertices[p + 1] = m01 * x + (m11 * y + (m21 * z + bones[m + 13]));
+                newVertices[p + 2] = m02 * x + (m12 * y + (m22 * z + bones[m + 14]));
+
+                newNormals[p] = m00 * nx + (m10 * ny + m20 * nz);
+                newNormals[p + 1] = m01 * nx + (m11 * ny + m21 * nz);
+                newNormals[p + 2] = m02 * nx + (m12 * ny + m22 * nz);
+
+                continue;
+            }
+
+            float rx = 0F;
+            float ry = 0F;
+            float rz = 0F;
+            float rw = 0F;
+
+            float rnx = 0F;
+            float rny = 0F;
+            float rnz = 0F;
+
+            int influences = 0;
 
             for (int w = 0; w < 4; w++)
             {
-                float weight = this.data.weightData[i * 4 + w];
+                float weight = weightData[b + w];
 
-                if (weight > 0)
+                if (weight > 0F)
                 {
-                    int index = this.data.boneIndexData[i * 4 + w];
+                    int m = boneIndexData[b + w] * 16;
 
-                    sum.set(morphedVertices[i * 3], morphedVertices[i * 3 + 1], morphedVertices[i * 3 + 2], 1F);
-                    matrices[index].transform(sum);
-                    result.add(sum.mul(weight));
+                    float m00 = bones[m];
+                    float m01 = bones[m + 1];
+                    float m02 = bones[m + 2];
+                    float m10 = bones[m + 4];
+                    float m11 = bones[m + 5];
+                    float m12 = bones[m + 6];
+                    float m20 = bones[m + 8];
+                    float m21 = bones[m + 9];
+                    float m22 = bones[m + 10];
 
-                    sumNormal.set(morphedNormals[i * 3], morphedNormals[i * 3 + 1], morphedNormals[i * 3 + 2]);
-                    normalMatrices[index].transform(sumNormal);
-                    resultNormal.add(sumNormal.mul(weight));
+                    rx += (m00 * x + (m10 * y + (m20 * z + bones[m + 12]))) * weight;
+                    ry += (m01 * x + (m11 * y + (m21 * z + bones[m + 13]))) * weight;
+                    rz += (m02 * x + (m12 * y + (m22 * z + bones[m + 14]))) * weight;
+                    rw += weight;
 
-                    boneCount++;
+                    rnx += (m00 * nx + (m10 * ny + m20 * nz)) * weight;
+                    rny += (m01 * nx + (m11 * ny + m21 * nz)) * weight;
+                    rnz += (m02 * nx + (m12 * ny + m22 * nz)) * weight;
 
-                    if (weight > maxWeight)
-                    {
-                        lightBone = index;
-                        maxWeight = weight;
-                    }
+                    influences++;
                 }
             }
 
-            if (boneCount == 0)
+            if (influences == 0)
             {
-                result.set(morphedVertices[i * 3], morphedVertices[i * 3 + 1], morphedVertices[i * 3 + 2], 1F);
-                resultNormal.set(morphedNormals[i * 3], morphedNormals[i * 3 + 1], morphedNormals[i * 3 + 2]);
+                rx = x;
+                ry = y;
+                rz = z;
+                rw = 1F;
+
+                rnx = nx;
+                rny = ny;
+                rnz = nz;
             }
 
-            result.x /= result.w;
-            result.y /= result.w;
-            result.z /= result.w;
-
-            newVertices[i * 3] = result.x;
-            newVertices[i * 3 + 1] = result.y;
-            newVertices[i * 3 + 2] = result.z;
-
-            newNormals[i * 3] = resultNormal.x;
-            newNormals[i * 3 + 1] = resultNormal.y;
-            newNormals[i * 3 + 2] = resultNormal.z;
-
-            result.set(0F, 0F, 0F, 0F);
-            resultNormal.set(0F, 0F, 0F);
-
-            if (stencilMap != null)
+            if (rw != 1F)
             {
-                this.tmpLight[i * 2] = Math.max(0, stencilMap.increment ? lightBone : 0);
-                this.tmpLight[i * 2 + 1] = 0;
+                rx /= rw;
+                ry /= rw;
+                rz /= rw;
             }
+
+            newVertices[p] = rx;
+            newVertices[p + 1] = ry;
+            newVertices[p + 2] = rz;
+
+            newNormals[p] = rnx;
+            newNormals[p + 1] = rny;
+            newNormals[p + 2] = rnz;
+        }
+    }
+
+    /** Full 4x4 skinning, kept for any data whose bones do carry a projective row. */
+    @Unique
+    private void bbsFbx$skinRangeProjective(
+            float[] positions, float[] normals, float[] bones, float[] weightData, int[] boneIndexData,
+            float[] newVertices, float[] newNormals, int start, int end)
+    {
+        for (int i = start; i < end; i++)
+        {
+            int p = i * 3;
+            int b = i * 4;
+
+            float x = positions[p];
+            float y = positions[p + 1];
+            float z = positions[p + 2];
+
+            float nx = normals[p];
+            float ny = normals[p + 1];
+            float nz = normals[p + 2];
+
+            float rx = 0F;
+            float ry = 0F;
+            float rz = 0F;
+            float rw = 0F;
+
+            float rnx = 0F;
+            float rny = 0F;
+            float rnz = 0F;
+
+            int influences = 0;
+
+            for (int w = 0; w < 4; w++)
+            {
+                float weight = weightData[b + w];
+
+                if (weight > 0F)
+                {
+                    /* JOML column-major layout, as written by Matrix4f.get:
+                     * m + 0..3 is column 0, m + 4..7 column 1, and so on,
+                     * which makes m + 12..14 the translation. The normal
+                     * matrix is the same upper-left 3x3 with the translation
+                     * terms left off, exactly what Matrix3f.set(Matrix4f)
+                     * would have copied out. */
+                    int m = boneIndexData[b + w] * 16;
+
+                    float m00 = bones[m];
+                    float m01 = bones[m + 1];
+                    float m02 = bones[m + 2];
+                    float m03 = bones[m + 3];
+                    float m10 = bones[m + 4];
+                    float m11 = bones[m + 5];
+                    float m12 = bones[m + 6];
+                    float m13 = bones[m + 7];
+                    float m20 = bones[m + 8];
+                    float m21 = bones[m + 9];
+                    float m22 = bones[m + 10];
+                    float m23 = bones[m + 11];
+
+                    /* Bracketed right-to-left to match the association JOML's
+                     * own Vector4f.mul/Vector3f.mul use. Float addition isn't
+                     * associative, so summing these terms in a different
+                     * order would land a bit or two away from what the host
+                     * produced; keeping the order identical makes the output
+                     * bit-for-bit the same as before rather than merely
+                     * close. */
+                    rx += (m00 * x + (m10 * y + (m20 * z + bones[m + 12]))) * weight;
+                    ry += (m01 * x + (m11 * y + (m21 * z + bones[m + 13]))) * weight;
+                    rz += (m02 * x + (m12 * y + (m22 * z + bones[m + 14]))) * weight;
+                    rw += (m03 * x + (m13 * y + (m23 * z + bones[m + 15]))) * weight;
+
+                    rnx += (m00 * nx + (m10 * ny + m20 * nz)) * weight;
+                    rny += (m01 * nx + (m11 * ny + m21 * nz)) * weight;
+                    rnz += (m02 * nx + (m12 * ny + m22 * nz)) * weight;
+
+                    influences++;
+                }
+            }
+
+            if (influences == 0)
+            {
+                rx = x;
+                ry = y;
+                rz = z;
+                rw = 1F;
+
+                rnx = nx;
+                rny = ny;
+                rnz = nz;
+            }
+
+            /* Dividing by exactly 1 is a no-op, and that is the normal
+             * outcome: affine bone matrices with weights summing to one, plus
+             * every unweighted vertex. Skipping it there costs a compare and
+             * saves three divides; elsewhere the divides are kept as-is
+             * rather than turned into a reciprocal multiply, so the result
+             * stays bit-identical to the host's. */
+            if (rw != 1F)
+            {
+                rx /= rw;
+                ry /= rw;
+                rz /= rw;
+            }
+
+            newVertices[p] = rx;
+            newVertices[p + 1] = ry;
+            newVertices[p + 2] = rz;
+
+            newNormals[p] = rnx;
+            newNormals[p + 1] = rny;
+            newNormals[p + 2] = rnz;
         }
     }
 
@@ -625,7 +1047,12 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
         if (stencilMap != null)
         {
-            java.util.Arrays.fill(this.tmpLight, 0);
+            Arrays.fill(this.tmpLight, 0);
+
+            /* This path writes the light buffer behind the cache's back, so
+             * drop the cache rather than let a later skinned frame assume the
+             * GPU still holds what the cache last built. */
+            this.bbsFbx$lightValid = false;
         }
 
         this.processData(newVertices, newNormals);

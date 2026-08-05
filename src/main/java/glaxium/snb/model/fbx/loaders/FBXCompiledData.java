@@ -8,8 +8,13 @@ import java.util.Map;
 
 public class FBXCompiledData extends CompiledData
 {
-    public final Map<String, float[]> shapeKeyVertices;
-    public final Map<String, float[]> shapeKeyNormals;
+    /**
+     * Shape key name -> the components that key moves, relative to the rest
+     * pose held in {@link #posData}/{@link #normData}. Sparse rather than a
+     * dense per-key copy of the whole mesh -- see {@link FBXShapeKeyDelta}
+     * for why. Empty (never null) on models without blend shapes.
+     */
+    public final Map<String, FBXShapeKeyDelta> shapeKeyDeltas;
 
     /**
      * Per-vertex material index into {@link #materialNames}/
@@ -36,12 +41,10 @@ public class FBXCompiledData extends CompiledData
             float[] posData, float[] texData, float[] normData,
             float[] weightData, int[] boneIndexData, int[] indexData,
             BOBJMesh mesh,
-            Map<String, float[]> shapeKeyVertices,
-            Map<String, float[]> shapeKeyNormals)
+            Map<String, FBXShapeKeyDelta> shapeKeyDeltas)
     {
         super(posData, texData, normData, weightData, boneIndexData, indexData, mesh);
-        this.shapeKeyVertices = shapeKeyVertices;
-        this.shapeKeyNormals = shapeKeyNormals;
+        this.shapeKeyDeltas = shapeKeyDeltas;
     }
 
     public void setMaterialSplit(int[] materialIndexData, String[] materialNames)
