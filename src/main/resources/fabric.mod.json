@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "bbs-fbx-addon",
+  "id": "bbs-snb-addon",
   "version": "${version}",
-  "name": "BBS Fbx Addon",
+  "name": "BBS_S&B_Addon",
   "description": "FBX model import/compatibility for BBS. Runs unmodified on BBS Base, BBS FS and BBS CML EDITION -- no BBS Addon Engine required.",
   "authors": [
     "Glaxium"
@@ -12,18 +12,18 @@
     "mchorse & Wemppy (BBS / BBS-FS)"
   ],
   "contact": {
-    "sources": "https://github.com/GlaxiumDev/BBS_FBX_Addon"
+    "sources": "https://github.com/GlaxiumDev/BBS_SNB_Addon"
   },
   "license": "MIT",
   "icon": "assets/bbs_fbx/icon.png",
   "environment": "client",
   "entrypoints": {
     "bbs-addon": [
-      "elgatopro300.bbsfbx.BBSFbxAddon"
+      "glaxium.snb.BBSFbxAddon"
     ]
   },
   "mixins": [
-    "bbs_fbx.mixins.json"
+    "bbs_snb_addon.mixins.json"
   ],
   "depends": {
     "fabricloader": ">=0.15.0",

@@ -11,8 +11,9 @@ base {
 }
 
 repositories {
-	// BBS CML EDITION is not published to a maven repository: drop the
-	// released BBS CML EDITION jar into the "libs" folder next to this file.
+	// None of the BBS forks (Base/FS/CML) are published to a maven repository:
+	// drop the released jar for whichever one you're building against into
+	// the "libs" folder next to this file.
 	flatDir {
 		dirs 'libs'
 	}
@@ -36,7 +37,7 @@ dependencies {
 
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// BBS CML EDITION: place the released jar here.
+	// The BBS jar you're building against (Base, FS, or CML EDITION): place it here.
 	modImplementation fileTree(dir: "libs", include: "*.jar")
 
 	// FBX Implementation: bundle only the Assimp module (matching Minecraft 1.20.4's LWJGL version).
