@@ -5,3 +5,10 @@
 /libs/
 /run/
 /.idea/
+/.claude/
+/.freebuff/
+
+# Vendored reference checkouts (bbs-fs, bbs-mod, bbs-cml) used only for
+# cross-referencing real BBS fork source/bytecode during development -- not
+# a build dependency, never published.
+/reference-sources/
