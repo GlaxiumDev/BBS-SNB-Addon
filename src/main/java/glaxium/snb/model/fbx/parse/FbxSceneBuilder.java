@@ -43,6 +43,7 @@ final class FbxSceneBuilder
     private final Map<Long, PropertyBag> objectProperties = new HashMap<>();
     private final Map<Long, Integer> materialIndices = new HashMap<>();
     private final Map<Long, MeshData> meshes = new LinkedHashMap<>();
+    private final Set<String> modelNames = new HashSet<>();
 
     FbxSceneBuilder(FbxDocument document)
     {
@@ -94,8 +95,14 @@ final class FbxSceneBuilder
             String subtype = node.properties.size() > 2
                     ? asString(node.properties.get(2), "")
                     : "";
-            FbxObject object = new FbxObject(id, node, cleanObjectName(rawName, node.name + "_" + id),
-                    subtype);
+            String name = cleanObjectName(rawName, node.name + "_" + id);
+
+            if (node.name.equalsIgnoreCase("Model"))
+            {
+                name = uniqueModelName(name);
+            }
+
+            FbxObject object = new FbxObject(id, node, name, subtype);
 
             if (this.objects.putIfAbsent(id, object) != null)
             {
@@ -104,6 +111,19 @@ final class FbxSceneBuilder
 
             this.objectProperties.put(id, new PropertyBag(node));
         }
+    }
+
+    private String uniqueModelName(String base)
+    {
+        String candidate = base;
+        int suffix = 1;
+
+        while (candidate.equals("RootNode") || !this.modelNames.add(candidate))
+        {
+            candidate = base + "_" + suffix++;
+        }
+
+        return candidate;
     }
 
     private void readConnections()
@@ -251,6 +271,8 @@ final class FbxSceneBuilder
 
         Layer normals = Layer.normal(firstLayer(geometry.node, "LayerElementNormal"));
         Layer uvs = Layer.uv(firstLayer(geometry.node, "LayerElementUV"));
+        boolean hasNormals = normals.hasData();
+        boolean hasUvs = uvs.hasData();
         Matrix4f normalTransform = new Matrix4f(geometricTransform);
 
         if (Math.abs(normalTransform.determinant()) > 1.0e-12f)
@@ -286,7 +308,8 @@ final class FbxSceneBuilder
 
             if (polygonEnd)
             {
-                emitPolygon(polygon, transformedControls, normals, uvs, normalTransform,
+                emitPolygon(polygon, transformedControls, normals, uvs, hasNormals, hasUvs,
+                        normalTransform,
                         positionsOut, normalsOut, uvsOut, indicesOut, expandedControls);
                 polygon.clear();
                 polygonIndex++;
@@ -295,7 +318,8 @@ final class FbxSceneBuilder
 
         if (!polygon.isEmpty())
         {
-            emitPolygon(polygon, transformedControls, normals, uvs, normalTransform,
+            emitPolygon(polygon, transformedControls, normals, uvs, hasNormals, hasUvs,
+                    normalTransform,
                     positionsOut, normalsOut, uvsOut, indicesOut, expandedControls);
         }
 
@@ -312,8 +336,9 @@ final class FbxSceneBuilder
     }
 
     private void emitPolygon(List<Corner> polygon, float[] controls, Layer normals, Layer uvs,
-            Matrix4f normalTransform, FloatArray positionsOut, FloatArray normalsOut,
-            FloatArray uvsOut, IntArray indicesOut, IntArray expandedControls)
+            boolean hasNormals, boolean hasUvs, Matrix4f normalTransform,
+            FloatArray positionsOut, FloatArray normalsOut, FloatArray uvsOut,
+            IntArray indicesOut, IntArray expandedControls)
     {
         if (polygon.size() < 3)
         {
@@ -331,16 +356,22 @@ final class FbxSceneBuilder
             positionsOut.add(controls[positionOffset + 2]);
             expandedControls.add(corner.controlIndex);
 
-            normals.read(corner, normal, 0f, 1f, 0f);
-            normalTransform.transformDirection(normal);
-            if (normal.lengthSquared() > 1.0e-12f) normal.normalize();
-            else normal.set(0f, 1f, 0f);
-            normalsOut.add(normal.x);
-            normalsOut.add(normal.y);
-            normalsOut.add(normal.z);
+            if (hasNormals)
+            {
+                normals.read(corner, normal, 0f, 1f, 0f);
+                normalTransform.transformDirection(normal);
+                if (normal.lengthSquared() > 1.0e-12f) normal.normalize();
+                else normal.set(0f, 1f, 0f);
+                normalsOut.add(normal.x);
+                normalsOut.add(normal.y);
+                normalsOut.add(normal.z);
+            }
 
-            uvsOut.add(uvs.read(corner, 0, 0f));
-            uvsOut.add(uvs.read(corner, 1, 0f));
+            if (hasUvs)
+            {
+                uvsOut.add(uvs.read(corner, 0, 0f));
+                uvsOut.add(uvs.read(corner, 1, 0f));
+            }
         }
 
         for (int i = 1; i + 1 < polygon.size(); i++)
@@ -393,7 +424,15 @@ final class FbxSceneBuilder
 
             if (Math.abs(link.determinant()) > 1.0e-12f)
             {
-                bone.offsetMatrix.set(link.invert());
+                Matrix4f offset = link.invert();
+                double[] transform = arrayAsDoubles(cluster.node.child("Transform"));
+
+                if (transform.length >= 16)
+                {
+                    offset.mul(matrixFromFbx(transform));
+                }
+
+                bone.offsetMatrix.set(offset);
             }
         }
 
@@ -472,7 +511,18 @@ final class FbxSceneBuilder
 
         if (shapeIndices.length == 0 && shapeVertices.length == base.controlPositions.length)
         {
-            targetControls = transformAbsolutePositions(shapeVertices, base.geometricTransform);
+            targetControls = base.controlPositions.clone();
+            Vector3f delta = new Vector3f();
+
+            for (int i = 0; i < controlCount; i++)
+            {
+                delta.set((float) shapeVertices[i * 3], (float) shapeVertices[i * 3 + 1],
+                        (float) shapeVertices[i * 3 + 2]);
+                base.geometricTransform.transformDirection(delta);
+                targetControls[i * 3] += delta.x;
+                targetControls[i * 3 + 1] += delta.y;
+                targetControls[i * 3 + 2] += delta.z;
+            }
         }
         else if (shapeIndices.length > 0 && shapeVertices.length >= shapeIndices.length * 3)
         {
@@ -513,45 +563,61 @@ final class FbxSceneBuilder
             target.positions[i * 3 + 2] = targetControls[source + 2];
         }
 
-        target.normals = buildMorphNormals(base, shape);
+        target.normals = buildMorphNormals(base, shape, shapeIndices);
         return target;
     }
 
-    private float[] buildMorphNormals(MeshData base, FbxObject shape)
+    private float[] buildMorphNormals(MeshData base, FbxObject shape, int[] shapeIndices)
     {
         double[] shapeNormals = arrayAsDoubles(shape.node.child("Normals"));
+        float[] expanded = base.mesh.normals.clone();
 
-        if (shapeNormals.length != base.controlPositions.length)
+        if (shapeNormals.length == 0 || expanded.length != base.expandedControls.length * 3)
         {
-            return base.mesh.normals.clone();
+            return expanded;
         }
 
         Matrix4f transform = new Matrix4f(base.geometricTransform);
         if (Math.abs(transform.determinant()) > 1.0e-12f) transform.invert().transpose();
         else transform.identity();
 
-        float[] controls = new float[shapeNormals.length];
-        Vector3f normal = new Vector3f();
+        Map<Integer, Vector3f> deltas = new HashMap<>();
+        int deltaCount = shapeNormals.length / 3;
+        Vector3f delta = new Vector3f();
 
-        for (int i = 0; i < shapeNormals.length / 3; i++)
+        for (int i = 0; i < deltaCount; i++)
         {
-            normal.set((float) shapeNormals[i * 3], (float) shapeNormals[i * 3 + 1],
+            int control = shapeIndices.length == 0 ? i
+                    : i < shapeIndices.length ? shapeIndices[i] : -1;
+
+            if (control < 0 || control >= base.controlPositions.length / 3)
+            {
+                continue;
+            }
+
+            delta.set((float) shapeNormals[i * 3], (float) shapeNormals[i * 3 + 1],
                     (float) shapeNormals[i * 3 + 2]);
-            transform.transformDirection(normal);
-            if (normal.lengthSquared() > 1.0e-12f) normal.normalize();
-            controls[i * 3] = normal.x;
-            controls[i * 3 + 1] = normal.y;
-            controls[i * 3 + 2] = normal.z;
+            transform.transformDirection(delta);
+            deltas.put(control, new Vector3f(delta));
         }
 
-        float[] expanded = new float[base.expandedControls.length * 3];
+        Vector3f normal = new Vector3f();
 
         for (int i = 0; i < base.expandedControls.length; i++)
         {
-            int source = base.expandedControls[i] * 3;
-            expanded[i * 3] = controls[source];
-            expanded[i * 3 + 1] = controls[source + 1];
-            expanded[i * 3 + 2] = controls[source + 2];
+            Vector3f normalDelta = deltas.get(base.expandedControls[i]);
+
+            if (normalDelta == null)
+            {
+                continue;
+            }
+
+            normal.set(expanded[i * 3], expanded[i * 3 + 1], expanded[i * 3 + 2])
+                    .add(normalDelta);
+            if (normal.lengthSquared() > 1.0e-12f) normal.normalize();
+            expanded[i * 3] = normal.x;
+            expanded[i * 3 + 1] = normal.y;
+            expanded[i * 3 + 2] = normal.z;
         }
 
         return expanded;
@@ -1010,39 +1076,13 @@ final class FbxSceneBuilder
             throw new IOException("FBX matrix has fewer than 16 values");
         }
 
-        /*
-         * FBX serializes rows. JOML's m(column)(row) naming means each source
-         * row must be written across m00,m10,m20,m30, i.e. transposed into
-         * JOML's column-vector representation.
-         */
         Matrix4f matrix = new Matrix4f();
-        matrix.m00((float) values[0]).m10((float) values[1])
-                .m20((float) values[2]).m30((float) values[3]);
-        matrix.m01((float) values[4]).m11((float) values[5])
-                .m21((float) values[6]).m31((float) values[7]);
-        matrix.m02((float) values[8]).m12((float) values[9])
-                .m22((float) values[10]).m32((float) values[11]);
-        matrix.m03((float) values[12]).m13((float) values[13])
-                .m23((float) values[14]).m33((float) values[15]);
+        matrix.set(
+                (float) values[0], (float) values[1], (float) values[2], (float) values[3],
+                (float) values[4], (float) values[5], (float) values[6], (float) values[7],
+                (float) values[8], (float) values[9], (float) values[10], (float) values[11],
+                (float) values[12], (float) values[13], (float) values[14], (float) values[15]);
         return matrix;
-    }
-
-    private float[] transformAbsolutePositions(double[] positions, Matrix4f transform)
-    {
-        float[] result = new float[positions.length];
-        Vector3f value = new Vector3f();
-
-        for (int i = 0; i < positions.length / 3; i++)
-        {
-            value.set((float) positions[i * 3], (float) positions[i * 3 + 1],
-                    (float) positions[i * 3 + 2]);
-            transform.transformPosition(value);
-            result[i * 3] = value.x;
-            result[i * 3 + 1] = value.y;
-            result[i * 3 + 2] = value.z;
-        }
-
-        return result;
     }
 
     private PropertyBag properties(long id)
@@ -1178,7 +1218,10 @@ final class FbxSceneBuilder
             return fallback;
         }
 
-        String cleaned = raw.replace("\0\1", "::");
+        int binarySeparator = raw.indexOf("\0\1");
+        String cleaned = binarySeparator < 0
+                ? raw
+                : raw.substring(binarySeparator + 2) + "::" + raw.substring(0, binarySeparator);
         int namespace = cleaned.lastIndexOf("::");
 
         if (namespace >= 0 && namespace + 2 < cleaned.length())
@@ -1588,6 +1631,11 @@ final class FbxSceneBuilder
             }
 
             return mapped;
+        }
+
+        private boolean hasData()
+        {
+            return this.components > 0 && this.direct.length >= this.components;
         }
 
         private static String childStringStatic(FbxNode parent, String name)
