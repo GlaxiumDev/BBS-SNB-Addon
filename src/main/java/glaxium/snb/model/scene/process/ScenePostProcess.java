@@ -225,12 +225,13 @@ public final class ScenePostProcess
         List<Float> norm = new ArrayList<>();
         List<Float> uv = new ArrayList<>();
         int[] oldToNew = new int[vertexCount];
+        String[] boneKeys = boneKeys(mesh, vertexCount);
         Arrays.fill(oldToNew, -1);
         int next = 0;
 
         for (int v = 0; v < vertexCount; v++)
         {
-            String key = vertexKey(mesh, v, hasNormals, hasUvs);
+            String key = vertexKey(mesh, v, hasNormals, hasUvs, boneKeys[v]);
             Integer existing = remap.get(key);
             if (existing != null)
             {
@@ -286,7 +287,7 @@ public final class ScenePostProcess
                     continue;
                 }
                 int neu = oldToNew[old];
-                merged.merge(neu, bone.weights[i], Float::sum);
+                merged.putIfAbsent(neu, bone.weights[i]);
             }
             bone.vertexIds = merged.keySet().stream().mapToInt(Integer::intValue).toArray();
             bone.weights = new float[bone.vertexIds.length];
@@ -325,7 +326,42 @@ public final class ScenePostProcess
         }
     }
 
-    private static String vertexKey(SceneMesh mesh, int v, boolean hasNormals, boolean hasUvs)
+    private static String[] boneKeys(SceneMesh mesh, int vertexCount)
+    {
+        StringBuilder[] builders = new StringBuilder[vertexCount];
+
+        for (int boneIndex = 0; boneIndex < mesh.bones.size(); boneIndex++)
+        {
+            SceneBone bone = mesh.bones.get(boneIndex);
+            int count = Math.min(bone.vertexIds.length, bone.weights.length);
+
+            for (int influence = 0; influence < count; influence++)
+            {
+                int vertex = bone.vertexIds[influence];
+
+                if (vertex < 0 || vertex >= vertexCount)
+                {
+                    continue;
+                }
+                if (builders[vertex] == null)
+                {
+                    builders[vertex] = new StringBuilder();
+                }
+                builders[vertex].append(boneIndex).append(':')
+                        .append(Float.floatToIntBits(bone.weights[influence])).append(',');
+            }
+        }
+
+        String[] keys = new String[vertexCount];
+        for (int vertex = 0; vertex < vertexCount; vertex++)
+        {
+            keys[vertex] = builders[vertex] == null ? "" : builders[vertex].toString();
+        }
+        return keys;
+    }
+
+    private static String vertexKey(SceneMesh mesh, int v, boolean hasNormals, boolean hasUvs,
+            String boneKey)
     {
         StringBuilder sb = new StringBuilder(64);
         sb.append(Float.floatToIntBits(mesh.positions[v * 3])).append(',')
@@ -341,6 +377,27 @@ public final class ScenePostProcess
         {
             sb.append('|').append(Float.floatToIntBits(mesh.uvs[v * 2])).append(',')
                     .append(Float.floatToIntBits(mesh.uvs[v * 2 + 1]));
+        }
+        sb.append("|b:").append(boneKey);
+
+        for (int morphIndex = 0; morphIndex < mesh.morphTargets.size(); morphIndex++)
+        {
+            SceneMorphTarget morph = mesh.morphTargets.get(morphIndex);
+            sb.append("|m").append(morphIndex).append(':');
+
+            if (morph.positions.length == mesh.positions.length)
+            {
+                sb.append(Float.floatToIntBits(morph.positions[v * 3])).append(',')
+                        .append(Float.floatToIntBits(morph.positions[v * 3 + 1])).append(',')
+                        .append(Float.floatToIntBits(morph.positions[v * 3 + 2]));
+            }
+            sb.append('/');
+            if (morph.normals.length == mesh.positions.length)
+            {
+                sb.append(Float.floatToIntBits(morph.normals[v * 3])).append(',')
+                        .append(Float.floatToIntBits(morph.normals[v * 3 + 1])).append(',')
+                        .append(Float.floatToIntBits(morph.normals[v * 3 + 2]));
+            }
         }
         return sb.toString();
     }
@@ -471,10 +528,7 @@ public final class ScenePostProcess
             return false;
         }
         String name = node.name == null ? "" : node.name;
-        return name.contains("Pivot") || name.endsWith("_$AssimpFbx$_Translation")
-                || name.endsWith("_$AssimpFbx$_Rotation") || name.endsWith("_$AssimpFbx$_Scaling")
-                || name.endsWith("_Translation") || name.endsWith("_Rotation") || name.endsWith("_PreRotation")
-                || name.endsWith("_PostRotation") || name.endsWith("_Scaling");
+        return name.contains("_$AssimpFbx$");
     }
 
     private static float[] toFloatArray(List<Float> list)

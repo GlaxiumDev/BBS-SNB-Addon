@@ -211,7 +211,7 @@ public final class FBXMeshBuilder
                     int count = sceneMesh.vertexCount();
                     for (int i = 0; i < count; i++)
                     {
-                        shapeNormals.add(new Vector3f(0, 1, 0));
+                        shapeNormals.add(new Vector3f(normals.get(normalBaseIndex + i)));
                     }
                 }
                 mesh.shapeKeyNormals.put(shapeKeyName, shapeNormals);
