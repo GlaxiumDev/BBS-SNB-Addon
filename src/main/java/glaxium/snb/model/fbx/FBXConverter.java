@@ -6,6 +6,10 @@ import glaxium.snb.model.fbx.convert.FBXMath;
 import glaxium.snb.model.fbx.convert.FBXMeshBuilder;
 import glaxium.snb.model.fbx.convert.FBXSceneWalker;
 import glaxium.snb.model.fbx.convert.FBXTextureExtractor;
+import glaxium.snb.model.scene.Scene;
+import glaxium.snb.model.scene.SceneBone;
+import glaxium.snb.model.scene.SceneMesh;
+import glaxium.snb.model.scene.SceneNode;
 
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
@@ -20,11 +24,6 @@ import org.joml.Matrix4f;
 import org.joml.Vector2d;
 import org.joml.Vector3f;
 
-import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AINode;
-import org.lwjgl.assimp.AIScene;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -33,29 +32,15 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * FBXConverter converts an Assimp {@link AIScene} into BBS FS {@link BOBJData}.
+ * Converts a pure-Java {@link Scene} into BBS {@link BOBJData}.
  *
- * <p>This class is now just the orchestrator; the actual work is split into:
+ * <p>Orchestrates:
  * <ul>
- *   <li>{@link FBXSceneWalker} — reads the raw Assimp node tree</li>
- *   <li>{@link FBXArmatureBuilder} — builds the BOBJArmature (skinned or per-object bones)</li>
- *   <li>{@link FBXMeshBuilder} — converts mesh geometry + weights</li>
- *   <li>{@link FBXAnimationBaker} — bakes animation clips into BOBJActions</li>
- *   <li>{@link FBXTextureExtractor} — extracts/generates textures</li>
- *   <li>{@link FBXMath} — shared matrix utilities</li>
- * </ul>
- *
- * <p>Coordinate handling:
- * <ul>
- *   <li>Blender bakes a 100x (cm->m) scale into the FBX node transform, so
- *       vertices are pre-multiplied by {@link #FBX_UNIT_SCALE} (0.01). Formats
- *       that are already in meters (glTF/GLB) pass 1.0 instead -- see
- *       {@link #convert(AIScene, float)}.</li>
- *   <li>No auto-centering, grounding, or height-normalization. The model keeps
- *       the exact position/scale it had in Blender.</li>
- *   <li>For non-skinned scenes, each object becomes its own bone named after the
- *       object, anchored at that object's Blender origin, so every mesh pivots
- *       around its own point (requires OptimizeGraph to be OFF in the loader).</li>
+ *   <li>{@link FBXSceneWalker} — node tree walk</li>
+ *   <li>{@link FBXArmatureBuilder} — skinned or per-object bones</li>
+ *   <li>{@link FBXMeshBuilder} — geometry + weights</li>
+ *   <li>{@link FBXAnimationBaker} — animation clips</li>
+ *   <li>{@link FBXTextureExtractor} — embedded textures</li>
  * </ul>
  */
 public class FBXConverter
@@ -63,20 +48,16 @@ public class FBXConverter
     /** Undoes the 100x cm->m scale Blender bakes into FBX node transforms. */
     private static final float FBX_UNIT_SCALE = 0.01f;
 
-    public static BOBJData convert(AIScene scene)
+    public static BOBJData convert(Scene scene)
     {
         return convert(scene, FBX_UNIT_SCALE);
     }
 
     /**
-     * @param unitScale scale applied to non-skinned geometry to cancel out
-     * whatever the source format baked into its node transforms -- {@link
-     * #FBX_UNIT_SCALE} for FBX, 1.0 for the formats that are already in
-     * meters (see {@code SceneFormat}). Skinned scenes ignore it entirely and
-     * always use 1.0, since their vertices come in bind (meter) space with no
-     * node scale applied.
+     * @param unitScale scale applied to non-skinned geometry --
+     * {@link #FBX_UNIT_SCALE} for FBX, 1.0 for glTF/GLB (meters).
      */
-    public static BOBJData convert(AIScene scene, float unitScale)
+    public static BOBJData convert(Scene scene, float unitScale)
     {
         List<Vertex> vertices = new ArrayList<>();
         List<Vector2d> textures = new ArrayList<>();
@@ -85,7 +66,7 @@ public class FBXConverter
         Map<String, BOBJAction> actions = new HashMap<>();
         Map<String, BOBJArmature> armatures = new HashMap<>();
 
-        AINode rootNode = scene.mRootNode();
+        SceneNode rootNode = scene.rootNode;
         if (rootNode == null)
         {
             return new BOBJData(vertices, textures, normals, meshes, actions, armatures);
@@ -101,7 +82,7 @@ public class FBXConverter
         Map<Integer, Matrix4f> meshTransforms = FBXSceneWalker.collectMeshTransforms(rootNode, meshNodeNames, nodeParents, nodeLocals, nodeWorldTransforms);
 
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
-        Map<String, AIBone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
+        Map<String, SceneBone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
         Map<String, Matrix4f> boneMeshRotations = FBXArmatureBuilder.collectBoneMeshRotations(skinnedBoneMeshIndex, meshTransforms);
         boolean ibmInSceneSpace = FBXArmatureBuilder.ibmInSceneSpace(skinnedBones, nodeWorldTransforms, skinnedBoneMeshIndex, meshTransforms);
 
@@ -110,7 +91,7 @@ public class FBXConverter
 
         float[] globalScale = {unitScale};
         Set<String> neededNodes = new HashSet<>();
-        int numMeshes = scene.mNumMeshes();
+        int numMeshes = scene.meshes.size();
 
         Matrix4f boneSpace = FBXArmatureBuilder.buildBoneSpace(rootCorrection, skinnedBoneMeshIndex, meshTransforms, ibmInSceneSpace);
         float animScale = unitScale;
@@ -119,20 +100,10 @@ public class FBXConverter
         {
             FBXArmatureBuilder.markNeededNodes(rootNode, skinnedBones.keySet(), neededNodes);
 
-            /* Skinned Blender FBX: vertices are already meters and the 100x
-             * lives on the mesh node (ignored for skinned verts) -- keep 1.0.
-             * Skinned Source/cm FBX: vertices AND bones are centimetres with
-             * no 100x on the mesh node -- apply 0.01 or the model is ~100x
-             * too tall. glTF that already baked 0.01 into the hierarchy stays
-             * at 1.0 for geometry (mesh AABB is meters). */
             boolean centimeterGeometry = needsCentimeterScale(scene, meshTransforms);
             globalScale[0] = centimeterGeometry ? FBX_UNIT_SCALE : 1.0f;
             animScale = globalScale[0];
 
-            /* Scene-space IBMs (glTF): geometry is already meters, but Assimp
-             * node animation keys still carry the pre-scale local translations
-             * (cm). Scale those deltas by the mesh node's scale so a camera
-             * key of 139 doesn't move the bone 139 meters. */
             if (ibmInSceneSpace)
             {
                 float meshScale = meshNodeScale(skinnedBoneMeshIndex, meshTransforms);
@@ -144,15 +115,10 @@ public class FBXConverter
         }
         else
         {
-            // One bone per scene node — every mesh object AND every mesh-less
-            // Empty (locator/group) — anchored at its own Blender origin, so
-            // meshes pivot around their own point and Empties show up in BBS
-            // as animatable, nestable limbs/groups just like mesh objects.
             FBXArmatureBuilder.buildObjectBones(globalArmature, nodeWorldTransforms, nodeParents, rootCorrection, globalScale[0]);
             animScale = globalScale[0];
         }
 
-        // Respect Blender's coordinates exactly: no centering/grounding/normalization.
         float offsetX = 0;
         float offsetY = 0;
         float offsetZ = 0;
@@ -165,24 +131,14 @@ public class FBXConverter
 
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
+            SceneMesh sceneMesh = scene.meshes.get(i);
             String objectBoneName = meshNodeNames.getOrDefault(i, "object_" + i);
-            FBXMeshBuilder.buildMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName);
+            FBXMeshBuilder.buildMesh(scene, sceneMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName);
         }
 
         FBXMeshBuilder.finalizeWeights(vertices, globalArmature);
 
-        /* Extract animation clips into BOBJActions, mirroring how BOBJ models
-         * carry actions. This now runs for BOTH paths:
-         *  - skinned scenes: channels targeting skinned bones are diffed
-         *    against their bind-pose local transform (bindLocals);
-         *  - non-skinned scenes: channels targeting an object/Empty bone fall
-         *    back to that node's raw local transform (nodeLocals) as its
-         *    rest pose, giving per-object (including per-Empty) animation.
-         * FBXAnimationBaker.processAnimations() already skips any channel
-         * whose node isn't a bone in the armature, so this is safe to run
-         * unconditionally whenever the scene has animation data. */
-        if (scene.mNumAnimations() > 0)
+        if (!scene.animations.isEmpty())
         {
             Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature, skinnedBoneMeshIndex, meshTransforms, nodeWorldTransforms, ibmInSceneSpace, nodeLocals);
 
@@ -207,33 +163,28 @@ public class FBXConverter
         return Math.max(scale.x, Math.max(scale.y, scale.z));
     }
 
-    /**
-     * True when mesh geometry is in centimetres (AABB extent &gt; ~10) and the
-     * mesh nodes don't already carry Blender's compensating 100x scale. That
-     * pattern is Source-engine / SFM FBX exports; applying {@link #FBX_UNIT_SCALE}
-     * brings them down to Minecraft-sized meters. Returns false for Blender
-     * FBX (small AABB, 100x on the node) and for glTF that already scaled.
-     */
-    private static boolean needsCentimeterScale(AIScene scene, Map<Integer, Matrix4f> meshTransforms)
+    private static boolean needsCentimeterScale(Scene scene, Map<Integer, Matrix4f> meshTransforms)
     {
         float maxExtent = 0F;
 
-        for (int i = 0; i < scene.mNumMeshes(); i++)
+        for (SceneMesh mesh : scene.meshes)
         {
-            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
             float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
             float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
-            var verts = mesh.mVertices();
+            float[] verts = mesh.positions;
 
-            while (verts.remaining() > 0)
+            for (int i = 0; i + 2 < verts.length; i += 3)
             {
-                var v = verts.get();
-                minX = Math.min(minX, v.x()); maxX = Math.max(maxX, v.x());
-                minY = Math.min(minY, v.y()); maxY = Math.max(maxY, v.y());
-                minZ = Math.min(minZ, v.z()); maxZ = Math.max(maxZ, v.z());
+                float x = verts[i], y = verts[i + 1], z = verts[i + 2];
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+                minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
             }
 
-            maxExtent = Math.max(maxExtent, Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ)));
+            if (verts.length >= 3)
+            {
+                maxExtent = Math.max(maxExtent, Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ)));
+            }
         }
 
         float maxMeshScale = 1F;
@@ -248,12 +199,7 @@ public class FBXConverter
         return maxExtent > 10F && maxMeshScale < 10F;
     }
 
-    /**
-     * Extracts embedded FBX textures into the model's per-material texture
-     * folders. Thin wrapper kept here so {@code FBXModelLoader} doesn't need
-     * to depend on the {@code convert} sub-package directly.
-     */
-    public static Set<String> extractEmbeddedTextures(AIScene scene, AssetProvider provider, Link model)
+    public static Set<String> extractEmbeddedTextures(Scene scene, AssetProvider provider, Link model)
     {
         return FBXTextureExtractor.extract(scene, provider, model);
     }

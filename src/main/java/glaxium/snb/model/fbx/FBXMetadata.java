@@ -1,9 +1,7 @@
 package glaxium.snb.model.fbx;
 
-import org.lwjgl.assimp.AIMetaData;
-import org.lwjgl.assimp.AIMetaDataEntry;
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.Assimp;
+import glaxium.snb.model.scene.Scene;
+import glaxium.snb.model.scene.SceneMetadata;
 
 public class FBXMetadata
 {
@@ -13,72 +11,14 @@ public class FBXMetadata
     public int coordAxis = 0; /* Default to X-coord */
     public double unitScaleFactor = 1.0;
 
-    public FBXMetadata(AIScene scene)
+    public FBXMetadata(Scene scene)
     {
-        AIMetaData metadata = scene.mMetaData();
+        SceneMetadata metadata = scene.metadata;
 
-        if (metadata != null)
-        {
-            System.out.println("[FBXMetadata] Found metadata properties: " + metadata.mNumProperties());
-
-            for (int i = 0; i < metadata.mNumProperties(); i++)
-            {
-                String key = metadata.mKeys().get(i).dataString();
-                AIMetaDataEntry entry = metadata.mValues().get(i);
-
-                switch (key) {
-                    case "UpAxis" -> {
-                        this.upAxis = getInt(entry);
-                        System.out.println(" -> UpAxis: " + this.upAxis);
-                    }
-                    case "OriginalUpAxis" -> {
-                        this.originalUpAxis = getInt(entry);
-                        System.out.println(" -> OriginalUpAxis: " + this.originalUpAxis);
-                    }
-                    case "FrontAxis" -> {
-                        this.frontAxis = getInt(entry);
-                        System.out.println(" -> FrontAxis: " + this.frontAxis);
-                    }
-                    case "CoordAxis" -> {
-                        this.coordAxis = getInt(entry);
-                        System.out.println(" -> CoordAxis: " + this.coordAxis);
-                    }
-                    case "UnitScaleFactor" -> {
-                        this.unitScaleFactor = getDouble(entry);
-                        System.out.println(" -> UnitScaleFactor: " + this.unitScaleFactor);
-                    }
-                }
-            }
-        }
-        else
-        {
-            System.out.println("[FBXMetadata] No metadata found in this scene! Using defaults.");
-        }
-    }
-
-    private int getInt(AIMetaDataEntry entry)
-    {
-        if (entry.mType() == Assimp.AI_INT32)
-        {
-            return entry.mData(4).asIntBuffer().get(0);
-        }
-        else if (entry.mType() == Assimp.AI_DOUBLE)
-        {
-            return (int) entry.mData(8).asDoubleBuffer().get(0);
-        }
-        return 0;
-    }
-
-    private double getDouble(AIMetaDataEntry entry)
-    {
-        if (entry.mType() == Assimp.AI_DOUBLE)
-        {
-            return entry.mData(8).asDoubleBuffer().get(0);
-        }
-        else if (entry.mType() == Assimp.AI_INT32)
-        {
-            return (int) entry.mData(4).asIntBuffer().get(0);
-        }
-        return 0;
+        this.upAxis = metadata.upAxis;
+        this.originalUpAxis = metadata.originalUpAxis;
+        this.frontAxis = metadata.frontAxis;
+        this.coordAxis = metadata.coordAxis;
+        this.unitScaleFactor = metadata.unitScaleFactor;
     }
 }

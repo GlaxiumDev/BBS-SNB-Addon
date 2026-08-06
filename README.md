@@ -12,10 +12,10 @@ BBS Addon Engine required.
 
 ## Features
 
-- Geometry + skeletal animation, converted from FBX, glTF and GLB via Assimp
-  (`org.lwjgl:lwjgl-assimp`) into BBS's native cubic/BOBJ model format. All
-  formats share one loader and one pipeline; only the import call differs
-  (UV origin, unit scale, external-file resolution -- see
+- Geometry + skeletal animation from FBX, glTF and GLB via **hand-written
+  pure-Java parsers** (no Assimp / no native binaries) into a shared scene IR,
+  then into BBS's native cubic/BOBJ format. All formats share one loader and
+  pipeline; only unit scale and FBX pivot handling differ (see
   `model/fbx/loaders/SceneFormat`). Separate glTF exports (`.gltf` + `.bin` +
   loose images) are imported with their referenced files alongside them
 - Per-material textures -- BBS's own single-mesh renderers only support one
@@ -24,7 +24,7 @@ BBS Addon Engine required.
   own texture, including under Iris/Sodium (PBR `_n`/`_s` companion maps
   tracked correctly per material, not just per model)
 - Shape keys, blended per-vertex on the same per-material draw path
-- Armature/skeletal animation baking from FBX's node hierarchy into BBS's
+- Armature/skeletal animation baking from the node hierarchy into BBS's
   bone format
 
 ## Supported forks

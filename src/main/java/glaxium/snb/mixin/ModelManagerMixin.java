@@ -15,7 +15,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Registers the Assimp model loader with {@link ModelManager} and teaches it
+ * Registers the FBX/glTF/GLB model loader with {@link ModelManager} and teaches it
  * which paths under {@code models/} are importable model files ({@link
  * SceneFormat}: {@code .fbx}, {@code .gltf}, {@code .glb}) that should trigger
  * a reload watch.

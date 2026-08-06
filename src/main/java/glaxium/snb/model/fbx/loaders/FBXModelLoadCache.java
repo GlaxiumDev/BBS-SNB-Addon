@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.CRC32;
 
 /**
- * Skips re-running the native Assimp import and FBX -> BOBJData conversion
+ * Skips re-running the FBX/glTF parse and Scene -> BOBJData conversion
  * when a model's .fbx file content hasn't actually changed since it was
  * last loaded.
  *

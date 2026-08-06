@@ -1,9 +1,8 @@
 package glaxium.snb.model.fbx;
 
-import org.lwjgl.PointerBuffer;
-import org.lwjgl.assimp.AIAnimMesh;
-import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AIScene;
+import glaxium.snb.model.scene.Scene;
+import glaxium.snb.model.scene.SceneMesh;
+import glaxium.snb.model.scene.SceneMorphTarget;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -11,43 +10,26 @@ import java.util.Set;
 public class FBXShapeKeyNames
 {
     /**
-     * Scans every mesh in the scene for Assimp AnimMeshes (FBX shape
-     * keys/blend shapes) and returns their resolved names, in encounter
-     * order. Pure Assimp scanning - shared by both the FS and CML loaders.
+     * Scans every mesh for morph targets (shape keys / blend shapes) and
+     * returns their resolved names, in encounter order.
      */
-    public static Set<String> collectShapeKeyNames(AIScene scene)
+    public static Set<String> collectShapeKeyNames(Scene scene)
     {
         LinkedHashSet<String> names = new LinkedHashSet<>();
 
-        if (scene == null || scene.mNumMeshes() <= 0 || scene.mMeshes() == null)
+        if (scene == null || scene.meshes.isEmpty())
         {
             return names;
         }
 
-        PointerBuffer meshes = scene.mMeshes();
-
-        for (int meshIndex = 0; meshIndex < scene.mNumMeshes(); meshIndex++)
+        for (SceneMesh mesh : scene.meshes)
         {
-            AIMesh mesh = AIMesh.createSafe(meshes.get(meshIndex));
+            String meshName = safeName(mesh.name);
 
-            if (mesh == null || mesh.mNumAnimMeshes() <= 0 || mesh.mAnimMeshes() == null)
+            for (int animIndex = 0; animIndex < mesh.morphTargets.size(); animIndex++)
             {
-                continue;
-            }
-
-            String meshName = FBXShapeKeyNames.safeName(mesh.mName().dataString());
-            PointerBuffer animMeshes = mesh.mAnimMeshes();
-
-            for (int animIndex = 0; animIndex < mesh.mNumAnimMeshes(); animIndex++)
-            {
-                AIAnimMesh animMesh = AIAnimMesh.createSafe(animMeshes.get(animIndex));
-
-                if (animMesh == null)
-                {
-                    continue;
-                }
-
-                String shapeKeyName = FBXShapeKeyNames.buildShapeKeyName(animMesh, meshName, animIndex);
+                SceneMorphTarget morph = mesh.morphTargets.get(animIndex);
+                String shapeKeyName = buildShapeKeyName(morph, meshName, animIndex);
 
                 if (!shapeKeyName.isBlank())
                 {
@@ -59,9 +41,9 @@ public class FBXShapeKeyNames
         return names;
     }
 
-    public static String buildShapeKeyName(AIAnimMesh animMesh, String meshName, int animIndex)
+    public static String buildShapeKeyName(SceneMorphTarget morph, String meshName, int animIndex)
     {
-        String name = safeName(animMesh.mName().dataString());
+        String name = safeName(morph == null ? null : morph.name);
 
         if (!name.isBlank())
         {

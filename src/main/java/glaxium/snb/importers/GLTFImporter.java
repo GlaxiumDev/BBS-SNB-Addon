@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
  * {@code .glb} is self-contained, but the far more common "separate" glTF
  * export is a {@code .gltf} JSON that references its geometry buffer
  * ({@code .bin}) and images by relative URI. Copying only the file the user
- * picked would produce a model folder Assimp can't read at all, so this
+ * picked would produce a model folder the glTF parser can't read at all, so this
  * importer also copies whatever that JSON points at, preserving the relative
  * subfolders the URIs use ({@code textures/foo.png} stays under
  * {@code textures/}) so the URIs keep resolving after the copy.</p>

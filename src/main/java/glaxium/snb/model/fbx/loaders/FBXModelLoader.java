@@ -3,6 +3,7 @@ package glaxium.snb.model.fbx.loaders;
 import glaxium.snb.model.fbx.FBXConverter;
 import glaxium.snb.model.fbx.FBXMesh;
 import glaxium.snb.model.fbx.FBXShapeKeyNames;
+import glaxium.snb.model.scene.Scene;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
@@ -17,9 +18,6 @@ import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.Assimp;
-
 import java.io.File;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -29,56 +27,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Registers as this addon's Assimp model loader (see {@code
- * ModelManagerMixin}, which installs this into {@code ModelManager.loaders}
- * on every fork), covering every format in {@link SceneFormat} -- FBX, glTF
- * and GLB. The formats share this one loader because only the import call
- * itself differs between them (flags, unit scale, external-file resolution);
- * everything from {@code AIScene} onwards is identical, hence the FBX-prefixed
- * class names throughout the pipeline.
- *
- * <p>One loader for all three forks -- Base, FS and CML. Everything upstream
- * of "we have a {@code BOBJData}" is shared with the FS-targeted sibling
- * addon's loader ({@link FBXAssimpImporter}, {@link FBXConverter},
- * {@link FBXModelLoadCache}), and everything downstream used to fork apart
- * only because {@code BOBJModel}'s constructor -- the single thing a model
- * class can't inherit -- genuinely diverges:
- *
- * <ul>
- *   <li><b>Base / CML:</b> {@code BOBJModel(BOBJArmature, CompiledData,
- *       boolean)} -- one {@code CompiledData} for the whole model.</li>
- *   <li><b>FS:</b> {@code BOBJModel(BOBJArmature, List<CompiledData>,
- *       boolean)} -- one per mesh.</li>
- * </ul>
- *
- * <p>Rather than keep per-fork model/loader subclasses (which can't coexist
- * in a single source tree that compiles against one jar at a time), this
- * loader always compiles the whole model into ONE merged
- * {@link FBXCompiledData} via
- * {@link FBXMeshCompiler#compileMergedWithMaterials} -- used for its
- * shape-key merging AND its per-material tagging -- and constructs the model
- * by reflecting over the active fork's constructor ({@link #createModel}):
- * FS gets {@code List.of(merged)} (a single-VAO list, identical layout to the
- * single-VAO Base/CML case), Base/CML get {@code merged} directly. The
- * FBX-specific pieces (the merged data + shape key names) are then handed to
- * the model through {@link IFbxModel} ({@code BOBJModelMixin}), which is how
- * the material-name UI and the per-material VAO render split read them back
- * on every fork.</p>
- *
- * <p>Texture/color: {@link FBXTextureResolverCML} resolves ONE texture for
- * the whole model, exactly like every fork's {@code ModelInstance} texture
- * default. If no texture is found anywhere, any flat Base Color captured off
- * the material becomes a synthetic solid-color texture {@code Link}
- * ({@code Link("color", hex)}) -- the exact mechanism the original
- * BBS-FS-only addon used via {@code LinkUtils.color}. BBS's TextureManager
- * generates the 1x1 color texture in memory; no PNG or folder is ever
- * written. FS handles that Link source natively;
- * {@code TextureManagerMixinBaseCML} gives Base and CML the same handling.
- * Every material of the model gets one such Link per flat-color material
- * through {@link #resolveMaterialTextures} (single-material models included,
- * matching the FS-targeted sibling addon); a material with neither a texture
- * nor a flat color gets its {@code textures/<material>/} folder created
- * instead, and a stale/empty material name is skipped with a warning.</p>
+ * Registers as this addon's model loader (see {@code ModelManagerMixin}),
+ * covering every format in {@link SceneFormat} -- FBX, glTF and GLB -- via
+ * pure-Java parsers into a shared {@link Scene} IR.
  */
 public class FBXModelLoader implements IModelLoader
 {
@@ -88,10 +39,6 @@ public class FBXModelLoader implements IModelLoader
         Link fbxLink = null;
         SceneFormat format = null;
 
-        /* Outer loop over formats, not links: links is an unordered set, so
-         * scanning it per format in SceneFormat's declaration order keeps the
-         * choice deterministic when a folder holds more than one importable
-         * file (FBX wins, so models that already loaded from one keep to it). */
         for (SceneFormat candidate : SceneFormat.values())
         {
             for (Link link : links)
@@ -147,29 +94,16 @@ public class FBXModelLoader implements IModelLoader
             }
             else
             {
-                AIScene scene = null;
-                Set<String> texturedMaterials;
+                Scene scene = importScene(fbxLink, format, bytes, models.provider);
 
-                try
+                if (scene == null)
                 {
-                    scene = importScene(fbxLink, format, bytes, models.provider);
-
-                    if (scene == null)
-                    {
-                        return null;
-                    }
-
-                    shapeKeyNames = FBXShapeKeyNames.collectShapeKeyNames(scene);
-                    data = FBXConverter.convert(scene, format.unitScale());
-                    texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+                    return null;
                 }
-                finally
-                {
-                    if (scene != null)
-                    {
-                        Assimp.aiReleaseImport(scene);
-                    }
-                }
+
+                shapeKeyNames = FBXShapeKeyNames.collectShapeKeyNames(scene);
+                data = FBXConverter.convert(scene, format.unitScale());
+                Set<String> texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
 
                 FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames, texturedMaterials);
             }
@@ -223,20 +157,11 @@ public class FBXModelLoader implements IModelLoader
         catch (Throwable e)
         {
             System.err.println("Failed to load " + format.name() + " model for " + id + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            e.printStackTrace();
         }
         return null;
     }
 
-    /**
-     * Builds a {@code BOBJModel} through whichever constructor the ACTIVE
-     * fork's jar actually has. FS's {@code (BOBJArmature, List<CompiledData>,
-     * boolean)} is tried first (the list wraps the single merged
-     * {@code CompiledData} -- one VAO, byte-for-byte the same layout as
-     * Base/CML's single-VAO model); Base/CML's {@code (BOBJArmature,
-     * CompiledData, boolean)} is the fallback. Both constructors are found
-     * by erased types, so this never needs to know which fork it's on and
-     * compiles against any one jar.
-     */
     public static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged)
     {
         try
@@ -269,23 +194,6 @@ public class FBXModelLoader implements IModelLoader
         }
     }
 
-    /**
-     * Fills in {@link FBXCompiledData#materialTextures} for the model -- any
-     * model, single- or multi-material (the FS film editor's per-material
-     * sheets iterate {@code ModelInstance.materials}, which the FS mixin
-     * seeds from this data even for one-material models). A saved user choice
-     * (from {@link FBXMaterialTextureConfig}) wins if there is one, otherwise
-     * falls back to the same {@code textures/<material>/} folder convention
-     * the single-texture path already uses. A material that has neither
-     * becomes a synthetic solid-color texture {@code Link} ({@link
-     * FBXTextureResolverCML#colorLink}) when its FBX material captured a
-     * flat Base Color (the exact mechanism the original BBS-FS-only addon
-     * used via {@code LinkUtils.color}); one that has neither gets its
-     * {@code textures/<material>/} folder created on disk (matching the
-     * sibling addon's {@code IModelLoader.ensureMaterialFolder}); and a
-     * stale null/empty material name is skipped with a cache-corruption
-     * warning.
-     */
     public static void resolveMaterialTextures(FBXCompiledData merged, BOBJData data, Link model, Collection<Link> links, AssetProvider provider)
     {
         Map<String, Link> saved = FBXMaterialTextureConfig.load(provider, model);
@@ -295,9 +203,6 @@ public class FBXModelLoader implements IModelLoader
         {
             String materialName = merged.materialNames[i];
 
-            /* DEFENSIVE: If the cached BOBJData was corrupted (the bug this
-             * addon was built around), mesh names may be null or empty. Log it
-             * so the user knows the cache is returning stale data. */
             if (materialName == null || materialName.isEmpty())
             {
                 System.err.println("[BBS FBX] WARNING: Mesh has null/empty material name! "
@@ -328,14 +233,6 @@ public class FBXModelLoader implements IModelLoader
         merged.setMaterialTextures(textures);
     }
 
-    /**
-     * Fork-agnostic copy of BBS FS's
-     * {@code IModelLoader.ensureMaterialFolder}: creates the model's
-     * {@code textures/<material>/} folder on disk so a texture can be dropped
-     * in for a material that had neither a real texture nor a flat color.
-     * Only FS's {@code IModelLoader} declares the original, so this addon
-     * can't call it directly against Base/CML.
-     */
     public static void ensureMaterialFolder(AssetProvider provider, Link model, String material)
     {
         if (material == null || material.isEmpty())
@@ -351,7 +248,6 @@ public class FBXModelLoader implements IModelLoader
         }
     }
 
-    /** The mesh carrying the given material name, for its texture reference and flat Base Color. */
     private static FBXMesh findMesh(BOBJData data, String materialName)
     {
         for (BOBJMesh mesh : data.meshes)
@@ -366,30 +262,22 @@ public class FBXModelLoader implements IModelLoader
     }
 
     /**
-     * Imports through Assimp's own file IO when the asset is a real file, and
-     * only falls back to the in-memory import when it isn't (a zipped/packed
-     * source pack). The file path matters for the "separate" glTF export,
-     * whose {@code .bin} buffer and loose image files are referenced by
-     * relative URI and are simply unreachable from a bare byte buffer.
+     * Prefer a real filesystem path so separate glTF exports can resolve
+     * relative {@code .bin} / image URIs; fall back to in-memory bytes.
      */
-    private static AIScene importScene(Link link, SceneFormat format, byte[] bytes, AssetProvider provider)
+    private static Scene importScene(Link link, SceneFormat format, byte[] bytes, AssetProvider provider) throws Exception
     {
         File file = provider.getFile(link);
 
         if (file != null && file.isFile())
         {
-            return FBXAssimpImporter.importScene(file, format);
+            return SceneImporter.importScene(file, format);
         }
 
-        return FBXAssimpImporter.importScene(bytes, format);
+        File baseDir = file != null ? file.getParentFile() : null;
+        return SceneImporter.importScene(bytes, format, baseDir);
     }
 
-    /**
-     * Same re-extraction safety net as the FS-targeted sibling loader: if a
-     * cached load's known textured materials are missing their PNG on disk
-     * (folder deleted by the user), re-import purely to rerun texture
-     * extraction.
-     */
     private static boolean ensureTexturesPresent(Link link, SceneFormat format, byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
     {
         if (texturedMaterials == null || texturedMaterials.isEmpty())
@@ -416,23 +304,18 @@ public class FBXModelLoader implements IModelLoader
             return false;
         }
 
-        AIScene scene = null;
-
         try
         {
-            scene = importScene(link, format, bytes, models.provider);
+            Scene scene = importScene(link, format, bytes, models.provider);
 
             if (scene != null)
             {
                 FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
             }
         }
-        finally
+        catch (Exception e)
         {
-            if (scene != null)
-            {
-                Assimp.aiReleaseImport(scene);
-            }
+            System.err.println("Failed to re-extract textures: " + e.getMessage());
         }
 
         return true;
