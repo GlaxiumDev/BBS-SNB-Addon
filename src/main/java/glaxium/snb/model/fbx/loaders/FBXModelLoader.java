@@ -154,7 +154,7 @@ public class FBXModelLoader implements IModelLoader
             modelInstance.applyConfig(config);
             return modelInstance;
         }
-        catch (Throwable e)
+        catch (Exception e)
         {
             System.err.println("Failed to load " + format.name() + " model for " + id + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
             e.printStackTrace();
