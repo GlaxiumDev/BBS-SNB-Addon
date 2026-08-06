@@ -41,6 +41,8 @@ during mixin bootstrap); everything else is fork-agnostic and shared.
 
 ## Building
 
+This branch targets **Minecraft 1.20.1** (use a matching BBS 1.20.1 jar).
+
 1. Drop the released jar for whichever BBS fork you're building against
    (Base, FS, or CML EDITION) into `libs/`.
 2. `./gradlew build`
