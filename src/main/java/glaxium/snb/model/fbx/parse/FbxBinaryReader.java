@@ -343,6 +343,21 @@ final class FbxBinaryReader
                 }
             }
 
+            /*
+             * When the output buffer fills exactly, Inflater may still need
+             * to consume the zlib trailer before finished() becomes true.
+             */
+            if (written == expected && !inflater.finished())
+            {
+                byte[] extra = new byte[1];
+                int extraCount = inflater.inflate(extra);
+
+                if (extraCount != 0)
+                {
+                    throw error("zlib array expands beyond its declared length");
+                }
+            }
+
             if (written != expected || !inflater.finished())
             {
                 throw error("zlib array expanded to " + written + " bytes, expected " + expected);
