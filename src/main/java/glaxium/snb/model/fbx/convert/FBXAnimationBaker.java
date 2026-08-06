@@ -1,5 +1,10 @@
 package glaxium.snb.model.fbx.convert;
 
+import glaxium.snb.model.scene.Scene;
+import glaxium.snb.model.scene.SceneAnimation;
+import glaxium.snb.model.scene.SceneBone;
+import glaxium.snb.model.scene.SceneNodeAnim;
+
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJBone;
@@ -10,15 +15,6 @@ import mchorse.bbs_mod.bobj.BOBJKeyframe;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
-
-import org.lwjgl.assimp.AIAnimation;
-import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AINodeAnim;
-import org.lwjgl.assimp.AIQuatKey;
-import org.lwjgl.assimp.AIQuaternion;
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.AIVector3D;
-import org.lwjgl.assimp.AIVectorKey;
 
 import java.util.*;
 
@@ -58,7 +54,7 @@ public final class FBXAnimationBaker
      * so an IBM that still carries a 0.01 scene-scale factor doesn't turn
      * every animation delta into a 100x scale blow-up.</p>
      */
-    public static Map<String, Matrix4f> computeBindLocals(Map<String, AIBone> skinnedBones, BOBJArmature armature,
+    public static Map<String, Matrix4f> computeBindLocals(Map<String, SceneBone> skinnedBones, BOBJArmature armature,
             Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms,
             Map<String, Matrix4f> nodeWorldTransforms, boolean ibmInSceneSpace, Map<String, Matrix4f> nodeLocals)
     {
@@ -91,9 +87,9 @@ public final class FBXAnimationBaker
         }
 
         Map<String, Matrix4f> worldBind = new HashMap<>();
-        for (Map.Entry<String, AIBone> entry : skinnedBones.entrySet())
+        for (Map.Entry<String, SceneBone> entry : skinnedBones.entrySet())
         {
-            Matrix4f offset = FBXMath.toMatrix4f(entry.getValue().mOffsetMatrix());
+            Matrix4f offset = new Matrix4f(entry.getValue().offsetMatrix);
             worldBind.put(entry.getKey(), orthonormalize(offset.invert()));
         }
 
@@ -159,15 +155,15 @@ public final class FBXAnimationBaker
                 : orthonormalize(new Matrix4f(meshWorld).invert().mul(nodeWorld));
     }
 
-    public static void processAnimations(AIScene scene, Map<String, BOBJAction> actions, BOBJArmature armature, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> bindLocals, float globalScale)
+    public static void processAnimations(Scene scene, Map<String, BOBJAction> actions, BOBJArmature armature, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> bindLocals, float globalScale)
     {
-        int numAnimations = scene.mNumAnimations();
+        int numAnimations = scene.animations.size();
 
         for (int a = 0; a < numAnimations; a++)
         {
-            AIAnimation aiAnimation = AIAnimation.create(scene.mAnimations().get(a));
+            SceneAnimation animation = scene.animations.get(a);
 
-            String name = aiAnimation.mName().dataString();
+            String name = animation.name;
             if (name.isEmpty())
             {
                 name = "animation_" + a;
@@ -182,7 +178,7 @@ public final class FBXAnimationBaker
                 }
             }
 
-            double ticksPerSecond = aiAnimation.mTicksPerSecond();
+            double ticksPerSecond = animation.ticksPerSecond;
             if (ticksPerSecond == 0)
             {
                 ticksPerSecond = 24.0;
@@ -203,11 +199,11 @@ public final class FBXAnimationBaker
                 action = new BOBJAction(name);
             }
 
-            int numChannels = aiAnimation.mNumChannels();
+            int numChannels = animation.channels.size();
             for (int c = 0; c < numChannels; c++)
             {
-                AINodeAnim nodeAnim = AINodeAnim.create(aiAnimation.mChannels().get(c));
-                String nodeName = nodeAnim.mNodeName().dataString();
+                SceneNodeAnim nodeAnim = animation.channels.get(c);
+                String nodeName = nodeAnim.nodeName;
 
                 /* Only animate nodes that ended up as bones in the armature. */
                 if (!armature.bones.containsKey(nodeName))
@@ -237,44 +233,20 @@ public final class FBXAnimationBaker
         }
     }
 
-    private static void processNodeAnimation(AINodeAnim nodeAnim, String nodeName, Matrix4f rest, BOBJAction action, double ticksPerSecond, float globalScale)
+    private static void processNodeAnimation(SceneNodeAnim nodeAnim, String nodeName, Matrix4f rest, BOBJAction action, double ticksPerSecond, float globalScale)
     {
-        int numPos = nodeAnim.mNumPositionKeys();
-        int numRot = nodeAnim.mNumRotationKeys();
-        int numScale = nodeAnim.mNumScalingKeys();
+        int numPos = nodeAnim.positionTimes.length;
+        int numRot = nodeAnim.rotationTimes.length;
+        int numScale = nodeAnim.scalingTimes.length;
 
-        double[] posTimes = new double[numPos];
-        Vector3f[] posVals = new Vector3f[numPos];
-        AIVectorKey.Buffer posKeys = nodeAnim.mPositionKeys();
-        for (int i = 0; i < numPos; i++)
-        {
-            AIVectorKey key = posKeys.get(i);
-            posTimes[i] = key.mTime();
-            AIVector3D v = key.mValue();
-            posVals[i] = new Vector3f(v.x(), v.y(), v.z());
-        }
+        double[] posTimes = nodeAnim.positionTimes;
+        Vector3f[] posVals = nodeAnim.positionValues;
 
-        double[] rotTimes = new double[numRot];
-        Quaternionf[] rotVals = new Quaternionf[numRot];
-        AIQuatKey.Buffer rotKeys = nodeAnim.mRotationKeys();
-        for (int i = 0; i < numRot; i++)
-        {
-            AIQuatKey key = rotKeys.get(i);
-            rotTimes[i] = key.mTime();
-            AIQuaternion q = key.mValue();
-            rotVals[i] = new Quaternionf(q.x(), q.y(), q.z(), q.w());
-        }
+        double[] rotTimes = nodeAnim.rotationTimes;
+        Quaternionf[] rotVals = nodeAnim.rotationValues;
 
-        double[] scaleTimes = new double[numScale];
-        Vector3f[] scaleVals = new Vector3f[numScale];
-        AIVectorKey.Buffer scaleKeys = nodeAnim.mScalingKeys();
-        for (int i = 0; i < numScale; i++)
-        {
-            AIVectorKey key = scaleKeys.get(i);
-            scaleTimes[i] = key.mTime();
-            AIVector3D v = key.mValue();
-            scaleVals[i] = new Vector3f(v.x(), v.y(), v.z());
-        }
+        double[] scaleTimes = nodeAnim.scalingTimes;
+        Vector3f[] scaleVals = nodeAnim.scalingValues;
 
         Vector3f restT = new Vector3f();
         rest.getTranslation(restT);

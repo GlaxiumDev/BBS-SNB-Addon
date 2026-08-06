@@ -1,15 +1,15 @@
 package glaxium.snb.model.fbx.convert;
 
+import glaxium.snb.model.scene.Scene;
+import glaxium.snb.model.scene.SceneBone;
+import glaxium.snb.model.scene.SceneMesh;
+import glaxium.snb.model.scene.SceneNode;
+
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJBone;
 
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
-import org.lwjgl.PointerBuffer;
-import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AINode;
-import org.lwjgl.assimp.AIScene;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -29,21 +29,21 @@ public final class FBXArmatureBuilder
      * name. {@code skinnedBoneMeshIndex} is filled in with, per bone name,
      * the index of the first mesh that uses it.
      */
-    public static Map<String, AIBone> collectSkinnedBones(AIScene scene, Map<String, Integer> skinnedBoneMeshIndex)
+    public static Map<String, SceneBone> collectSkinnedBones(Scene scene, Map<String, Integer> skinnedBoneMeshIndex)
     {
-        Map<String, AIBone> skinnedBones = new HashMap<>();
-        int numMeshes = scene.mNumMeshes();
+        Map<String, SceneBone> skinnedBones = new HashMap<>();
+        int numMeshes = scene.meshes.size();
 
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
-            int numBones = aiMesh.mNumBones();
+            SceneMesh mesh = scene.meshes.get(i);
+            int numBones = mesh.bones.size();
 
             for (int j = 0; j < numBones; j++)
             {
-                AIBone aiBone = AIBone.create(aiMesh.mBones().get(j));
-                String boneName = aiBone.mName().dataString();
-                skinnedBones.putIfAbsent(boneName, aiBone);
+                SceneBone bone = mesh.bones.get(j);
+                String boneName = bone.name;
+                skinnedBones.putIfAbsent(boneName, bone);
                 skinnedBoneMeshIndex.putIfAbsent(boneName, i);
             }
         }
@@ -90,13 +90,13 @@ public final class FBXArmatureBuilder
      * joints) in a different unit from their skinned children -- animation
      * deltas then pick up a 100x scale and the model vanishes.
      */
-    public static boolean ibmInSceneSpace(Map<String, AIBone> skinnedBones, Map<String, Matrix4f> nodeWorldTransforms,
+    public static boolean ibmInSceneSpace(Map<String, SceneBone> skinnedBones, Map<String, Matrix4f> nodeWorldTransforms,
             Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms)
     {
         int sceneVotes = 0;
         int meshVotes = 0;
 
-        for (Map.Entry<String, AIBone> entry : skinnedBones.entrySet())
+        for (Map.Entry<String, SceneBone> entry : skinnedBones.entrySet())
         {
             Matrix4f nodeWorld = nodeWorldTransforms.get(entry.getKey());
 
@@ -105,7 +105,7 @@ public final class FBXArmatureBuilder
                 continue;
             }
 
-            Matrix4f ibmInv = FBXMath.toMatrix4f(entry.getValue().mOffsetMatrix()).invert();
+            Matrix4f ibmInv = new Matrix4f(entry.getValue().offsetMatrix).invert();
             float errScene = translationDistance(ibmInv, nodeWorld);
 
             Integer meshIndex = skinnedBoneMeshIndex.get(entry.getKey());
@@ -256,17 +256,13 @@ public final class FBXArmatureBuilder
     /**
      * Marks every node that is (or has a descendant that is) a skinned bone.
      */
-    public static boolean markNeededNodes(AINode node, Set<String> skinnedBones, Set<String> neededNodes)
+    public static boolean markNeededNodes(SceneNode node, Set<String> skinnedBones, Set<String> neededNodes)
     {
-        String name = node.mName().dataString();
+        String name = node.name;
         boolean needed = skinnedBones.contains(name);
 
-        int numChildren = node.mNumChildren();
-        PointerBuffer children = node.mChildren();
-
-        for (int i = 0; i < numChildren; i++)
+        for (SceneNode child : node.children)
         {
-            AINode child = AINode.create(children.get(i));
             if (markNeededNodes(child, skinnedBones, neededNodes))
             {
                 needed = true;
@@ -292,10 +288,10 @@ public final class FBXArmatureBuilder
      *                        transform -- skip the mesh-rotation multiply that
      *                        mesh-local Blender FBX IBMs need
      */
-    public static void buildSkinnedHierarchy(AINode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, AIBone> skinnedBones, Map<String, Matrix4f> boneMeshRotations, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, Matrix4f boneSpace, boolean ibmInSceneSpace, float offsetX, float offsetY, float offsetZ)
+    public static void buildSkinnedHierarchy(SceneNode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, SceneBone> skinnedBones, Map<String, Matrix4f> boneMeshRotations, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, Matrix4f boneSpace, boolean ibmInSceneSpace, float offsetX, float offsetY, float offsetZ)
     {
-        String name = node.mName().dataString();
-        Matrix4f local = FBXMath.toMatrix4f(node.mTransformation());
+        String name = node.name;
+        Matrix4f local = new Matrix4f(node.localTransform);
         Matrix4f global = new Matrix4f(parentGlobal).mul(local);
 
         String nextParent = parentName;
@@ -306,7 +302,7 @@ public final class FBXArmatureBuilder
             Matrix4f boneMat;
             if (skinnedBones.containsKey(name))
             {
-                Matrix4f offset = FBXMath.toMatrix4f(skinnedBones.get(name).mOffsetMatrix());
+                Matrix4f offset = new Matrix4f(skinnedBones.get(name).offsetMatrix);
                 Matrix4f boneWorld = offset.invert();
 
                 if (!ibmInSceneSpace)
@@ -352,12 +348,9 @@ public final class FBXArmatureBuilder
             nextParent = name;
         }
 
-        int numChildren = node.mNumChildren();
-        PointerBuffer children = node.mChildren();
-
-        for (int i = 0; i < numChildren; i++)
+        for (SceneNode child : node.children)
         {
-            AINode child = AINode.create(children.get(i));
             buildSkinnedHierarchy(child, nextParent, global, armature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, boneSpace, ibmInSceneSpace, offsetX, offsetY, offsetZ);
         }
-    }}
+    }
+}

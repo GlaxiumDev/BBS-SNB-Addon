@@ -1,22 +1,17 @@
 package glaxium.snb.model.fbx.convert;
 
+import glaxium.snb.model.scene.Scene;
+import glaxium.snb.model.scene.SceneMaterial;
+import glaxium.snb.model.scene.SceneTexture;
+
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
-
-import org.lwjgl.assimp.AIMaterial;
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.AIString;
-import org.lwjgl.assimp.AITexture;
-import org.lwjgl.assimp.Assimp;
-import org.lwjgl.system.MemoryUtil;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.IntBuffer;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
@@ -31,32 +26,22 @@ public final class FBXTextureExtractor
 {
     private FBXTextureExtractor() {}
 
-    public static Set<String> extract(AIScene scene, AssetProvider provider, Link model)
+    public static Set<String> extract(Scene scene, AssetProvider provider, Link model)
     {
         Set<String> texturedMaterials = new LinkedHashSet<>();
-        int numMaterials = scene.mNumMaterials();
+        int numMaterials = scene.materials.size();
 
         for (int i = 0; i < numMaterials; i++)
         {
-            AIMaterial material = AIMaterial.create(scene.mMaterials().get(i));
-
-            AIString nameStr = AIString.calloc();
-            String materialName = null;
-            if (Assimp.aiGetMaterialString(material, Assimp.AI_MATKEY_NAME, 0, 0, nameStr) == Assimp.aiReturn_SUCCESS)
-            {
-                materialName = nameStr.dataString();
-            }
-            nameStr.free();
+            SceneMaterial material = scene.materials.get(i);
+            String materialName = material.name;
 
             if (materialName == null || materialName.isEmpty())
             {
                 continue;
             }
 
-            AIString path = AIString.calloc();
-            int result = Assimp.aiGetMaterialTexture(material, Assimp.aiTextureType_DIFFUSE, 0, path, (IntBuffer) null, null, null, null, null, null);
-            String texturePath = result == Assimp.aiReturn_SUCCESS ? path.dataString() : null;
-            path.free();
+            String texturePath = material.diffuseTexturePath;
 
             if (texturePath == null || texturePath.isEmpty())
             {
@@ -91,16 +76,16 @@ public final class FBXTextureExtractor
                 continue;
             }
 
-            AITexture aiTexture = resolveEmbeddedTexture(scene, texturePath);
+            SceneTexture texture = resolveEmbeddedTexture(scene, texturePath);
 
-            if (aiTexture == null)
+            if (texture == null)
             {
                 continue;
             }
 
             try
             {
-                BufferedImage image = decodeEmbeddedTexture(aiTexture);
+                BufferedImage image = decodeEmbeddedTexture(texture);
 
                 if (image != null)
                 {
@@ -119,9 +104,9 @@ public final class FBXTextureExtractor
         return texturedMaterials;
     }
 
-    private static AITexture resolveEmbeddedTexture(AIScene scene, String texturePath)
+    private static SceneTexture resolveEmbeddedTexture(Scene scene, String texturePath)
     {
-        int numTextures = scene.mNumTextures();
+        int numTextures = scene.textures.size();
         if (numTextures == 0)
         {
             return null;
@@ -134,7 +119,7 @@ public final class FBXTextureExtractor
                 int index = Integer.parseInt(texturePath.substring(1));
                 if (index >= 0 && index < numTextures)
                 {
-                    return AITexture.create(scene.mTextures().get(index));
+                    return scene.textures.get(index);
                 }
             }
             catch (NumberFormatException ignored)
@@ -147,11 +132,10 @@ public final class FBXTextureExtractor
 
         for (int i = 0; i < numTextures; i++)
         {
-            AITexture candidate = AITexture.create(scene.mTextures().get(i));
-            AIString filenameHint = candidate.mFilename();
-            String hint = filenameHint.dataString();
+            SceneTexture candidate = scene.textures.get(i);
+            String hint = candidate.filename;
 
-            if (!hint.isEmpty() && baseName(hint).equalsIgnoreCase(targetName))
+            if (hint != null && !hint.isEmpty() && baseName(hint).equalsIgnoreCase(targetName))
             {
                 return candidate;
             }
@@ -159,7 +143,7 @@ public final class FBXTextureExtractor
 
         if (numTextures == 1)
         {
-            return AITexture.create(scene.mTextures().get(0));
+            return scene.textures.get(0);
         }
 
         return null;
@@ -172,30 +156,24 @@ public final class FBXTextureExtractor
         return slash >= 0 ? normalized.substring(slash + 1) : normalized;
     }
 
-    private static BufferedImage decodeEmbeddedTexture(AITexture aiTexture) throws IOException
+    private static BufferedImage decodeEmbeddedTexture(SceneTexture texture) throws IOException
     {
-        int width = aiTexture.mWidth();
-        int height = aiTexture.mHeight();
+        int width = texture.width;
+        int height = texture.height;
+        byte[] data = texture.data;
 
-        long pcDataAddress = MemoryUtil.memGetAddress(aiTexture.address() + AITexture.PCDATA);
-
-        if (pcDataAddress == MemoryUtil.NULL)
+        if (data == null || data.length == 0)
         {
             return null;
         }
 
-        if (height == 0)
+        if (texture.isCompressed())
         {
-            ByteBuffer raw = MemoryUtil.memByteBuffer(pcDataAddress, width);
-            byte[] bytes = new byte[width];
-            raw.get(bytes);
-
-            return ImageIO.read(new ByteArrayInputStream(bytes));
+            return ImageIO.read(new ByteArrayInputStream(data));
         }
         else
         {
             int texelCount = width * height;
-            ByteBuffer raw = MemoryUtil.memByteBuffer(pcDataAddress, texelCount * 4);
             BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
 
             /* Build the whole ARGB array first and write it in one batched
@@ -206,10 +184,10 @@ public final class FBXTextureExtractor
             int[] pixels = new int[texelCount];
             for (int i = 0; i < texelCount; i++)
             {
-                int b = raw.get(i * 4) & 0xFF;
-                int g = raw.get(i * 4 + 1) & 0xFF;
-                int r = raw.get(i * 4 + 2) & 0xFF;
-                int a = raw.get(i * 4 + 3) & 0xFF;
+                int b = data[i * 4] & 0xFF;
+                int g = data[i * 4 + 1] & 0xFF;
+                int r = data[i * 4 + 2] & 0xFF;
+                int a = data[i * 4 + 3] & 0xFF;
 
                 pixels[i] = (a << 24) | (r << 16) | (g << 8) | b;
             }
