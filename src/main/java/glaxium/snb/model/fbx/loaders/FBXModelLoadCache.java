@@ -9,15 +9,13 @@ import java.util.zip.CRC32;
 
 /**
  * Skips re-running the native Assimp import and FBX -> BOBJData conversion
- * when a model's .fbx file content hasn't actually changed since it was
- * last loaded.
+ * when a model's file bytes haven't changed since the last load (CRC hash).
  *
- * <p><b>CRITICAL FIX:</b> This cache is now cleared on every
- * {@code ModelManager.reload()} (F6 press) via the mixin. Previously the
- * static map lived forever, so deleting a model and re-adding it with the
- * same name returned stale, mutated {@code BOBJData} from the previous
- * load — meshes would have corrupted names or missing material data,
- * causing BBS FS to save a single-material config to disk.</p>
+ * <p>Survives {@code ModelManager.reload()} on purpose: wiping the cache on
+ * every F6 forced a full Assimp reparse of every model and made reload feel
+ * hung. A content-hash miss already re-imports when the file actually
+ * changed. Call {@link #invalidate(String)} for one path, or {@link #clear()}
+ * only when you truly need a cold start.</p>
  */
 public final class FBXModelLoadCache
 {

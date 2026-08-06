@@ -20,6 +20,11 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
  * SceneFormat}: {@code .fbx}, {@code .gltf}, {@code .glb}) that should trigger
  * a reload watch.
  *
+ * <p>Does <b>not</b> wipe {@link FBXModelLoadCache} on {@code reload()}:
+ * entries are content-hashed, so unchanged files skip Assimp after F6. The
+ * old blanket clear forced a full reparse of every model and made reload
+ * feel hung.</p>
+ *
  * <p>Fork-agnostic on purpose: {@code setupLoaders}, {@code isRelodable(Link)},
  * the public {@code loaders} field, and {@code reload()} all have the exact
  * same shape on BBS Base, BBS FS and BBS CML EDITION -- verified directly
@@ -52,17 +57,6 @@ public class ModelManagerMixin
                 && SceneFormat.fromPath(path) != null)
         {
             info.setReturnValue(true);
-        }
-    }
-
-    @Inject(method = "reload", at = @At("HEAD"), remap = false)
-    private void bbsFbx$clearCacheOnReload(CallbackInfo info)
-    {
-        int size = FBXModelLoadCache.size();
-        if (size > 0)
-        {
-            FBXModelLoadCache.clear();
-            BBSFbxAddon.LOGGER.info("Cleared FBX model load cache ({} entries) for reload", size);
         }
     }
 }

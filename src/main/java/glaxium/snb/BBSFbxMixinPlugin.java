@@ -15,11 +15,10 @@ import java.util.Set;
  * <p>{@code mixin.base}, {@code mixin.fs} and {@code mixin.cml} gate a mixin
  * to exactly one fork -- used where Base/FS/CML actually disagree on method
  * signature (see the doc comments on those classes). {@code mixin.basecml}
- * and {@code mixin.basefs} gate a mixin to two of the three forks. The
- * {@code basefs} parallel-loader mixins exist in source but are currently
- * <b>not listed</b> in {@code bbs_snb_addon.mixins.json} (concurrent Assimp
- * imports froze Linux under reload/login load). Everything else targets
- * classes identical across all three forks and is left ungated.</p>
+ * and {@code mixin.basefs} gate a mixin to two of the three forks -- used
+ * for Base/FS's capped parallel model loader (Assimp stays serialized; see
+ * {@code ModelLoaderMixinBaseFS}). Everything else targets classes identical
+ * across all three forks and is left ungated.</p>
  *
  * <p>Runs during mixin bootstrap, so it must never touch an actual BBS class
  * -- {@link BBSFork#fromLoadedMods()} only reads Fabric Loader metadata for
