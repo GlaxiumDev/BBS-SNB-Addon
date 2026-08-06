@@ -94,7 +94,7 @@ public abstract class UIReplaysEditorMixinCML
             at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/forms/FormUtils;getProperty(Lmchorse/bbs_mod/forms/forms/Form;Ljava/lang/String;)Lmchorse/bbs_mod/settings/values/base/BaseValueBasic;"),
             remap = false
     )
-    private static BaseValueBasic bbsFbx$materialSheetProperty(Form form, String key)
+    private BaseValueBasic bbsFbx$materialSheetProperty(Form form, String key)
     {
         BaseValueBasic property = FormUtils.getProperty(form, key);
 
