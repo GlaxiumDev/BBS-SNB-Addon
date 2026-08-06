@@ -20,9 +20,11 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Converts a resolved glTF document into the shared scene IR. */
 final class GltfSceneBuilder
@@ -60,10 +62,21 @@ final class GltfSceneBuilder
 
     private void initializeNodeNames() throws IOException
     {
+        Set<String> usedNames = new HashSet<>();
+        usedNames.add("RootNode");
+
         for (int index = 0; index < nodeDefinitions.size(); index++)
         {
             JsonObject node = GltfDocument.objectAt(nodeDefinitions, index, "node");
-            nodeNames[index] = optionalString(node, "name", "node_" + index, "node " + index);
+            String base = optionalString(node, "name", "node_" + index, "node " + index);
+            String name = base;
+            int suffix = 1;
+
+            while (!usedNames.add(name))
+            {
+                name = base + "_" + suffix++;
+            }
+            nodeNames[index] = name;
         }
     }
 
@@ -739,13 +752,23 @@ final class GltfSceneBuilder
         float[] output = accessors.readFloats(outputAccessor);
         float[] values = new float[inputInfo.count * components];
         boolean cubic = "CUBICSPLINE".equals(interpolation);
+        float[] inTangents = cubic ? new float[values.length] : new float[0];
+        float[] outTangents = cubic ? new float[values.length] : new float[0];
         for (int key = 0; key < inputInfo.count; key++)
         {
             int sourceElement = cubic ? key * 3 + 1 : key;
             System.arraycopy(output, sourceElement * components,
                 values, key * components, components);
+            if (cubic)
+            {
+                System.arraycopy(output, (sourceElement - 1) * components,
+                    inTangents, key * components, components);
+                System.arraycopy(output, (sourceElement + 1) * components,
+                    outTangents, key * components, components);
+            }
         }
-        return new AnimationValues(times, values, components);
+        return new AnimationValues(times, values, inTangents, outTangents,
+            components, interpolation);
     }
 
     private static void assignAnimationValues(
@@ -755,40 +778,66 @@ final class GltfSceneBuilder
         {
             nodeAnimation.positionTimes = values.times;
             nodeAnimation.positionValues = vectors(values);
+            nodeAnimation.positionInterpolation = values.interpolation;
+            nodeAnimation.positionInTangents = vectors(values, values.inTangents);
+            nodeAnimation.positionOutTangents = vectors(values, values.outTangents);
         }
         else if ("scale".equals(path))
         {
             nodeAnimation.scalingTimes = values.times;
             nodeAnimation.scalingValues = vectors(values);
+            nodeAnimation.scalingInterpolation = values.interpolation;
+            nodeAnimation.scalingInTangents = vectors(values, values.inTangents);
+            nodeAnimation.scalingOutTangents = vectors(values, values.outTangents);
         }
         else
         {
             nodeAnimation.rotationTimes = values.times;
             nodeAnimation.rotationValues = quaternions(values);
+            nodeAnimation.rotationInterpolation = values.interpolation;
+            nodeAnimation.rotationInTangents = quaternions(values, values.inTangents);
+            nodeAnimation.rotationOutTangents = quaternions(values, values.outTangents);
         }
     }
 
     private static Vector3f[] vectors(AnimationValues values)
     {
+        return vectors(values, values.values);
+    }
+
+    private static Vector3f[] vectors(AnimationValues values, float[] data)
+    {
+        if (data.length == 0)
+        {
+            return new Vector3f[0];
+        }
         Vector3f[] vectors = new Vector3f[values.times.length];
         for (int index = 0; index < vectors.length; index++)
         {
             int offset = index * values.components;
             vectors[index] = new Vector3f(
-                values.values[offset], values.values[offset + 1], values.values[offset + 2]);
+                data[offset], data[offset + 1], data[offset + 2]);
         }
         return vectors;
     }
 
     private static Quaternionf[] quaternions(AnimationValues values)
     {
+        return quaternions(values, values.values);
+    }
+
+    private static Quaternionf[] quaternions(AnimationValues values, float[] data)
+    {
+        if (data.length == 0)
+        {
+            return new Quaternionf[0];
+        }
         Quaternionf[] quaternions = new Quaternionf[values.times.length];
         for (int index = 0; index < quaternions.length; index++)
         {
             int offset = index * values.components;
             quaternions[index] = new Quaternionf(
-                values.values[offset], values.values[offset + 1],
-                values.values[offset + 2], values.values[offset + 3]);
+                data[offset], data[offset + 1], data[offset + 2], data[offset + 3]);
         }
         return quaternions;
     }
@@ -1078,13 +1127,20 @@ final class GltfSceneBuilder
     {
         final double[] times;
         final float[] values;
+        final float[] inTangents;
+        final float[] outTangents;
         final int components;
+        final String interpolation;
 
-        AnimationValues(double[] times, float[] values, int components)
+        AnimationValues(double[] times, float[] values, float[] inTangents,
+            float[] outTangents, int components, String interpolation)
         {
             this.times = times;
             this.values = values;
+            this.inTangents = inTangents;
+            this.outTangents = outTangents;
             this.components = components;
+            this.interpolation = interpolation;
         }
     }
 

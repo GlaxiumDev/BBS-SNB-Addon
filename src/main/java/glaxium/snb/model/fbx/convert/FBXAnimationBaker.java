@@ -302,9 +302,18 @@ public final class FBXAnimationBaker
         {
             double time = (double) f / FRAMES_PER_SECOND * ticksPerSecond;
 
-            Vector3f t = (numPos > 0) ? interpolateVector(posTimes, posVals, time) : new Vector3f(restT);
-            Quaternionf r = (numRot > 0) ? interpolateQuat(rotTimes, rotVals, time) : new Quaternionf(restR);
-            Vector3f s = (numScale > 0) ? interpolateVector(scaleTimes, scaleVals, time) : new Vector3f(restS);
+            Vector3f t = (numPos > 0)
+                    ? interpolateVector(posTimes, posVals, time, nodeAnim.positionInterpolation,
+                            nodeAnim.positionInTangents, nodeAnim.positionOutTangents)
+                    : new Vector3f(restT);
+            Quaternionf r = (numRot > 0)
+                    ? interpolateQuat(rotTimes, rotVals, time, nodeAnim.rotationInterpolation,
+                            nodeAnim.rotationInTangents, nodeAnim.rotationOutTangents)
+                    : new Quaternionf(restR);
+            Vector3f s = (numScale > 0)
+                    ? interpolateVector(scaleTimes, scaleVals, time, nodeAnim.scalingInterpolation,
+                            nodeAnim.scalingInTangents, nodeAnim.scalingOutTangents)
+                    : new Vector3f(restS);
 
             animLocal.translationRotateScale(t.x, t.y, t.z, r.x, r.y, r.z, r.w, s.x, s.y, s.z);
             restInv.mul(animLocal, delta);
@@ -460,7 +469,8 @@ public final class FBXAnimationBaker
         return insertionPoint - 1;
     }
 
-    private static Vector3f interpolateVector(double[] times, Vector3f[] values, double time)
+    private static Vector3f interpolateVector(double[] times, Vector3f[] values, double time,
+            String interpolation, Vector3f[] inTangents, Vector3f[] outTangents)
     {
         int n = times.length;
 
@@ -469,14 +479,38 @@ public final class FBXAnimationBaker
         if (time >= times[n - 1]) return new Vector3f(values[n - 1]);
 
         int i = findSegmentStart(times, time);
+        if ("STEP".equals(interpolation))
+        {
+            return new Vector3f(values[i]);
+        }
+
         double span = times[i + 1] - times[i];
         float factor = span <= 0 ? 0f : (float) ((time - times[i]) / span);
+
+        if ("CUBICSPLINE".equals(interpolation)
+                && inTangents.length == n && outTangents.length == n)
+        {
+            float factor2 = factor * factor;
+            float factor3 = factor2 * factor;
+            float h00 = 2f * factor3 - 3f * factor2 + 1f;
+            float h10 = factor3 - 2f * factor2 + factor;
+            float h01 = -2f * factor3 + 3f * factor2;
+            float h11 = factor3 - factor2;
+            float duration = (float) span;
+
+            return new Vector3f(values[i]).mul(h00)
+                    .fma(h10 * duration, outTangents[i])
+                    .fma(h01, values[i + 1])
+                    .fma(h11 * duration, inTangents[i + 1]);
+        }
+
         Vector3f result = new Vector3f(values[i]);
         result.lerp(values[i + 1], factor);
         return result;
     }
 
-    private static Quaternionf interpolateQuat(double[] times, Quaternionf[] values, double time)
+    private static Quaternionf interpolateQuat(double[] times, Quaternionf[] values, double time,
+            String interpolation, Quaternionf[] inTangents, Quaternionf[] outTangents)
     {
         int n = times.length;
 
@@ -485,8 +519,40 @@ public final class FBXAnimationBaker
         if (time >= times[n - 1]) return new Quaternionf(values[n - 1]);
 
         int i = findSegmentStart(times, time);
+        if ("STEP".equals(interpolation))
+        {
+            return new Quaternionf(values[i]);
+        }
+
         double span = times[i + 1] - times[i];
         float factor = span <= 0 ? 0f : (float) ((time - times[i]) / span);
+
+        if ("CUBICSPLINE".equals(interpolation)
+                && inTangents.length == n && outTangents.length == n)
+        {
+            float factor2 = factor * factor;
+            float factor3 = factor2 * factor;
+            float h00 = 2f * factor3 - 3f * factor2 + 1f;
+            float h10 = factor3 - 2f * factor2 + factor;
+            float h01 = -2f * factor3 + 3f * factor2;
+            float h11 = factor3 - factor2;
+            float duration = (float) span;
+            Quaternionf value0 = values[i];
+            Quaternionf value1 = values[i + 1];
+            Quaternionf out = outTangents[i];
+            Quaternionf in = inTangents[i + 1];
+
+            return new Quaternionf(
+                    h00 * value0.x + h10 * duration * out.x
+                            + h01 * value1.x + h11 * duration * in.x,
+                    h00 * value0.y + h10 * duration * out.y
+                            + h01 * value1.y + h11 * duration * in.y,
+                    h00 * value0.z + h10 * duration * out.z
+                            + h01 * value1.z + h11 * duration * in.z,
+                    h00 * value0.w + h10 * duration * out.w
+                            + h01 * value1.w + h11 * duration * in.w).normalize();
+        }
+
         Quaternionf result = new Quaternionf(values[i]);
         result.slerp(values[i + 1], factor);
         return result.normalize();
