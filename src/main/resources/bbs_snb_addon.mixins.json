@@ -36,9 +36,7 @@
     "base.CubicVAORendererMixinBase",
     "cml.CubicVAORendererMixinCML",
     "cml.UIReplaysEditorMixinCML",
-    "cml.UIAnimationStateEditorMixinCML",
-    "basefs.ModelLoaderMixinBaseFS",
-    "basefs.ModelManagerConcurrencyMixinBaseFS"
+    "cml.UIAnimationStateEditorMixinCML"
   ],
   "injectors": {
     "defaultRequire": 1

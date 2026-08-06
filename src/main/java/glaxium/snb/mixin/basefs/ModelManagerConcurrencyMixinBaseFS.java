@@ -10,8 +10,13 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import java.util.Map;
 
 /**
- * Makes {@link ModelManager#models} safe to read/write from multiple threads
- * at once, which {@link ModelLoaderMixinBaseFS}'s worker pool now does.
+ * <b>Parked — not registered in {@code bbs_snb_addon.mixins.json}.</b>
+ * Only needed alongside {@link ModelLoaderMixinBaseFS}; that parallel loader
+ * is disabled because concurrent Assimp + unsynced {@code reload()} froze
+ * Linux desktops. See that class's doc for the full reason.
+ *
+ * <p>Makes {@link ModelManager#models} safe to read/write from multiple threads
+ * at once, which {@link ModelLoaderMixinBaseFS}'s worker pool needs.</p>
  *
  * <p>Base/FS's {@code models} field is a plain {@code HashMap} -- fine for
  * the original single-loader-thread design (one background writer, main

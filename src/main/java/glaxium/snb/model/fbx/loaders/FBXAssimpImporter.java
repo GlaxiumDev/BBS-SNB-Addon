@@ -13,9 +13,21 @@ import java.nio.ByteBuffer;
  * Drives Assimp's import of a model file into an AIScene, with the property
  * store setup (pivot handling, scale factor) and post-process flags BBS needs
  * per {@link SceneFormat}.
+ *
+ * <p>All import entry points take {@link #IMPORT_LOCK}: Assimp's native
+ * importer is heavy and not safe to run on several models at once. Concurrent
+ * imports (plus a {@code ModelManager.reload()} clearing the model map mid-
+ * load) have frozen the whole desktop under memory pressure on Linux.</p>
  */
 public final class FBXAssimpImporter
 {
+    /**
+     * Serializes every Assimp import / release of the property store. Keep
+     * scene release ({@code aiReleaseImport}) outside this lock so a slow
+     * converter doesn't block the next import -- only the native parse does.
+     */
+    private static final Object IMPORT_LOCK = new Object();
+
     private FBXAssimpImporter() {}
 
     /**
@@ -40,18 +52,21 @@ public final class FBXAssimpImporter
         buffer.put(bytes);
         buffer.flip();
 
-        AIPropertyStore store = createStore(format);
+        synchronized (IMPORT_LOCK)
+        {
+            AIPropertyStore store = createStore(format);
 
-        try
-        {
-            return check(Assimp.aiImportFileFromMemoryWithProperties(buffer,
-                    format.postProcessFlags(),
-                    format.hint(),
-                    store), format);
-        }
-        finally
-        {
-            Assimp.aiReleasePropertyStore(store);
+            try
+            {
+                return check(Assimp.aiImportFileFromMemoryWithProperties(buffer,
+                        format.postProcessFlags(),
+                        format.hint(),
+                        store), format);
+            }
+            finally
+            {
+                Assimp.aiReleasePropertyStore(store);
+            }
         }
     }
 
@@ -63,18 +78,21 @@ public final class FBXAssimpImporter
      */
     public static AIScene importScene(File file, SceneFormat format)
     {
-        AIPropertyStore store = createStore(format);
+        synchronized (IMPORT_LOCK)
+        {
+            AIPropertyStore store = createStore(format);
 
-        try
-        {
-            return check(Assimp.aiImportFileExWithProperties(file.getAbsolutePath(),
-                    format.postProcessFlags(),
-                    (AIFileIO) null,
-                    store), format);
-        }
-        finally
-        {
-            Assimp.aiReleasePropertyStore(store);
+            try
+            {
+                return check(Assimp.aiImportFileExWithProperties(file.getAbsolutePath(),
+                        format.postProcessFlags(),
+                        (AIFileIO) null,
+                        store), format);
+            }
+            finally
+            {
+                Assimp.aiReleasePropertyStore(store);
+            }
         }
     }
 
