@@ -17,6 +17,7 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -401,9 +402,23 @@ final class GltfSceneBuilder
             attributes, 0, vertexCount, meshIndex, primitiveIndex);
         InfluenceSet influences1 = readInfluences(
             attributes, 1, vertexCount, meshIndex, primitiveIndex);
-        if (skinIndex >= 0 && (influences0 != null || influences1 != null))
+        if (influences1 != null && influences0 == null)
         {
-            buildBones(mesh, skinIndex, influences0, influences1, meshIndex, primitiveIndex);
+            throw new IOException("mesh " + meshIndex + " primitive " + primitiveIndex
+                + " provides JOINTS_1/WEIGHTS_1 without set 0");
+        }
+        if (skinIndex < -1)
+        {
+            throw new IOException("mesh " + meshIndex + " primitive " + primitiveIndex
+                + " references invalid skin " + skinIndex);
+        }
+        if (skinIndex >= 0)
+        {
+            GltfDocument.objectAt(document.array("skins"), skinIndex, "skin");
+            if (influences0 != null)
+            {
+                buildBones(mesh, skinIndex, influences0, influences1, meshIndex, primitiveIndex);
+            }
         }
 
         readMorphTargets(mesh, meshDefinition, primitive, meshIndex, primitiveIndex,
@@ -961,9 +976,9 @@ final class GltfSceneBuilder
         }
         try
         {
-            return value.getAsInt();
+            return new BigDecimal(value.getAsString()).intValueExact();
         }
-        catch (NumberFormatException exception)
+        catch (NumberFormatException | ArithmeticException exception)
         {
             throw new IOException(description + " is not a valid integer", exception);
         }

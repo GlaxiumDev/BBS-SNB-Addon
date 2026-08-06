@@ -9,6 +9,7 @@ import com.google.gson.JsonParser;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
@@ -296,9 +297,9 @@ final class GltfDocument
         }
         try
         {
-            return value.getAsInt();
+            return new BigDecimal(value.getAsString()).intValueExact();
         }
-        catch (NumberFormatException exception)
+        catch (NumberFormatException | ArithmeticException exception)
         {
             throw new IOException(description + " has invalid integer " + name, exception);
         }
@@ -317,9 +318,9 @@ final class GltfDocument
         }
         try
         {
-            return value.getAsInt();
+            return new BigDecimal(value.getAsString()).intValueExact();
         }
-        catch (NumberFormatException exception)
+        catch (NumberFormatException | ArithmeticException exception)
         {
             throw new IOException(description + " has invalid integer " + name, exception);
         }

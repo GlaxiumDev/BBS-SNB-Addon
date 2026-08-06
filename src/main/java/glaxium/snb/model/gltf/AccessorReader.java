@@ -169,7 +169,11 @@ final class AccessorReader
             throw new IOException("accessor " + info.index + " byteStride " + stride
                 + " is smaller than its element size " + packedSize);
         }
-        if (accessorOffset % info.componentSize != 0)
+        if (stride % info.componentSize != 0)
+        {
+            throw new IOException("accessor " + info.index + " byteStride is not component-aligned");
+        }
+        if ((view.offset + accessorOffset) % info.componentSize != 0)
         {
             throw new IOException("accessor " + info.index + " byteOffset is not component-aligned");
         }
