@@ -15,13 +15,10 @@ import java.util.Set;
  * <p>{@code mixin.base}, {@code mixin.fs} and {@code mixin.cml} gate a mixin
  * to exactly one fork -- used where Base/FS/CML actually disagree on method
  * signature (see the doc comments on those classes). {@code mixin.basecml}
- * and {@code mixin.basefs} gate a mixin to two of the three forks -- used
- * where two forks share an identical method shape that the third fork
- * either lacks or has already fixed independently (e.g. {@code basefs}'s
- * parallel model loader: CML already ships its own parallel {@code
- * ModelLoader}/{@code ModelManager}, so re-applying this addon's version to
- * CML would be redundant at best and conflict with CML's own concurrency
- * design at worst). Everything else in {@code bbs_fbx.mixins.json} targets
+ * and {@code mixin.basefs} gate a mixin to two of the three forks. The
+ * {@code basefs} parallel-loader mixins exist in source but are currently
+ * <b>not listed</b> in {@code bbs_snb_addon.mixins.json} (concurrent Assimp
+ * imports froze Linux under reload/login load). Everything else targets
  * classes identical across all three forks and is left ungated.</p>
  *
  * <p>Runs during mixin bootstrap, so it must never touch an actual BBS class
