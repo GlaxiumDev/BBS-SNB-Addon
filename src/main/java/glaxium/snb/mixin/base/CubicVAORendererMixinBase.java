@@ -53,7 +53,7 @@ public abstract class CubicVAORendererMixinBase
     @Shadow private ShaderProgram program;
 
     @Inject(
-            method = "renderGroup(Lnet/minecraft/client/render/BufferBuilder;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/data/model/ModelGroup;Lmchorse/bbs_mod/cubic/data/model/Model;)Z",
+            method = "renderGroup",
             at = @At("HEAD"), cancellable = true, remap = false
     )
     private void bbsFbx$renderPerMaterial(

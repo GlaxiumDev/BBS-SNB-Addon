@@ -47,14 +47,54 @@ public final class FBXAnimationBaker
      * to build relBoneMat. Diffing against these (instead of the raw node
      * transform, which Blender may bake to frame 0) keeps a held pose
      * consistent with the bind pose.
+     *
+     * <p>A bone's parent is not always a skinning bone itself, and then it
+     * has no offset matrix to take a bind world from -- the armature object a
+     * glTF hangs its root bone off, for instance, since glTF only lists bones
+     * that actually deform something as skin joints. That parent's bind world
+     * is reconstructed from the node tree in the <em>same</em> space the IBMs
+     * use (mesh-local or scene -- see {@link FBXArmatureBuilder#ibmInSceneSpace}).
+     * Worlds are orthonormalized before the parent-relative local is computed
+     * so an IBM that still carries a 0.01 scene-scale factor doesn't turn
+     * every animation delta into a 100x scale blow-up.</p>
      */
-    public static Map<String, Matrix4f> computeBindLocals(Map<String, AIBone> skinnedBones, BOBJArmature armature)
+    public static Map<String, Matrix4f> computeBindLocals(Map<String, AIBone> skinnedBones, BOBJArmature armature,
+            Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms,
+            Map<String, Matrix4f> nodeWorldTransforms, boolean ibmInSceneSpace, Map<String, Matrix4f> nodeLocals)
     {
+        /* Scene-space IBMs (glTF): Assimp's node animation keys are in the
+         * raw node-local units (often cm under a 0.01 parent), while
+         * IBM-derived locals are already in meters. Diffing keys against the
+         * IBM local leaves a constant centimetre-sized translation on every
+         * bone. Prefer the node local as the animation rest so the delta is
+         * computed in the same unit the keys use; geom/animScale then
+         * converts the result into bone-matrix meters. */
+        if (ibmInSceneSpace && nodeLocals != null)
+        {
+            Map<String, Matrix4f> bindLocals = new HashMap<>();
+
+            for (BOBJBone bone : armature.orderedBones)
+            {
+                Matrix4f local = nodeLocals.get(bone.name);
+
+                if (local != null)
+                {
+                    /* Keep scale: orthonormalizing would turn a unit-conversion
+                     * parent (scale 0.01) into rest scale 1, so the still-0.01
+                     * animation keys bake a delta scale of 0.01 and the whole
+                     * model shrinks to a speck the moment any clip plays. */
+                    bindLocals.put(bone.name, new Matrix4f(local));
+                }
+            }
+
+            return bindLocals;
+        }
+
         Map<String, Matrix4f> worldBind = new HashMap<>();
         for (Map.Entry<String, AIBone> entry : skinnedBones.entrySet())
         {
             Matrix4f offset = FBXMath.toMatrix4f(entry.getValue().mOffsetMatrix());
-            worldBind.put(entry.getKey(), offset.invert());
+            worldBind.put(entry.getKey(), orthonormalize(offset.invert()));
         }
 
         Map<String, Matrix4f> bindLocals = new HashMap<>();
@@ -67,14 +107,56 @@ public final class FBXAnimationBaker
             }
 
             Matrix4f parentWorld = bone.parent.isEmpty() ? null : worldBind.get(bone.parent);
+
+            if (parentWorld == null && !bone.parent.isEmpty())
+            {
+                parentWorld = nodeBindWorld(bone.parent, bone.name, skinnedBoneMeshIndex, meshTransforms,
+                        nodeWorldTransforms, ibmInSceneSpace);
+            }
+
             Matrix4f local = parentWorld == null
                     ? new Matrix4f(world)
                     : new Matrix4f(parentWorld).invert().mul(world);
 
-            bindLocals.put(bone.name, local);
+            bindLocals.put(bone.name, orthonormalize(local));
         }
 
         return bindLocals;
+    }
+
+    /** Drop non-uniform / inherited scene scale; keep rotation + translation. */
+    private static Matrix4f orthonormalize(Matrix4f m)
+    {
+        Matrix4f out = new Matrix4f(m);
+        out.normalize3x3();
+        return out;
+    }
+
+    /**
+     * Bind world of a node that isn't a skinning bone, in the same space the
+     * offset matrices use.
+     */
+    private static Matrix4f nodeBindWorld(String node, String childBone, Map<String, Integer> skinnedBoneMeshIndex,
+            Map<Integer, Matrix4f> meshTransforms, Map<String, Matrix4f> nodeWorldTransforms, boolean ibmInSceneSpace)
+    {
+        Matrix4f nodeWorld = nodeWorldTransforms.get(node);
+
+        if (nodeWorld == null)
+        {
+            return null;
+        }
+
+        if (ibmInSceneSpace)
+        {
+            return orthonormalize(nodeWorld);
+        }
+
+        Integer meshIndex = skinnedBoneMeshIndex.get(childBone);
+        Matrix4f meshWorld = meshIndex == null ? null : meshTransforms.get(meshIndex);
+
+        return meshWorld == null
+                ? orthonormalize(nodeWorld)
+                : orthonormalize(new Matrix4f(meshWorld).invert().mul(nodeWorld));
     }
 
     public static void processAnimations(AIScene scene, Map<String, BOBJAction> actions, BOBJArmature armature, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> bindLocals, float globalScale)

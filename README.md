@@ -5,15 +5,19 @@ old (now inactive) Minecraft mod
 [S&B](https://www.curseforge.com/minecraft/mc-mods/snb) — this project is not
 affiliated with it.
 
-Adds FBX model loading support to **BBS** -- runs unmodified on **BBS Base**,
+Adds FBX and glTF (`.gltf` / `.glb`) model loading support to **BBS** -- runs unmodified on **BBS Base**,
 **BBS FS**, and **BBS CML EDITION**, with a single mixin plugin
 (`BBSFbxMixinPlugin`) picking the right fork-specific code at load time. No
 BBS Addon Engine required.
 
 ## Features
 
-- Geometry + skeletal animation, converted from FBX via Assimp
-  (`org.lwjgl:lwjgl-assimp`) into BBS's native cubic/BOBJ model format
+- Geometry + skeletal animation, converted from FBX, glTF and GLB via Assimp
+  (`org.lwjgl:lwjgl-assimp`) into BBS's native cubic/BOBJ model format. All
+  formats share one loader and one pipeline; only the import call differs
+  (UV origin, unit scale, external-file resolution -- see
+  `model/fbx/loaders/SceneFormat`). Separate glTF exports (`.gltf` + `.bin` +
+  loose images) are imported with their referenced files alongside them
 - Per-material textures -- BBS's own single-mesh renderers only support one
   texture (or per-bone overrides) per model; this addon splits multi-material
   FBX models into per-material draw calls so each material renders with its

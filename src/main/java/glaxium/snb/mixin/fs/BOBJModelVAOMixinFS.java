@@ -65,7 +65,7 @@ public abstract class BOBJModelVAOMixinFS
     @Shadow private int vao;
 
     @Inject(
-            method = "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V",
+            method = "render",
             at = @At("HEAD"), cancellable = true, remap = false
     )
     private void bbsFbx$renderPerMaterial(

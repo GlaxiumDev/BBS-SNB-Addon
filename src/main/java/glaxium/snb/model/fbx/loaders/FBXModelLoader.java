@@ -29,8 +29,13 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Registers as the FBX model loader (see {@code ModelManagerMixin}, which
- * installs this into {@code ModelManager.loaders} on every fork).
+ * Registers as this addon's Assimp model loader (see {@code
+ * ModelManagerMixin}, which installs this into {@code ModelManager.loaders}
+ * on every fork), covering every format in {@link SceneFormat} -- FBX, glTF
+ * and GLB. The formats share this one loader because only the import call
+ * itself differs between them (flags, unit scale, external-file resolution);
+ * everything from {@code AIScene} onwards is identical, hence the FBX-prefixed
+ * class names throughout the pipeline.
  *
  * <p>One loader for all three forks -- Base, FS and CML. Everything upstream
  * of "we have a {@code BOBJData}" is shared with the FS-targeted sibling
@@ -81,12 +86,26 @@ public class FBXModelLoader implements IModelLoader
     public ModelInstance load(String id, ModelManager models, Link model, Collection<Link> links, MapType config)
     {
         Link fbxLink = null;
+        SceneFormat format = null;
 
-        for (Link link : links)
+        /* Outer loop over formats, not links: links is an unordered set, so
+         * scanning it per format in SceneFormat's declaration order keeps the
+         * choice deterministic when a folder holds more than one importable
+         * file (FBX wins, so models that already loaded from one keep to it). */
+        for (SceneFormat candidate : SceneFormat.values())
         {
-            if (link.path.toLowerCase().endsWith(".fbx"))
+            for (Link link : links)
             {
-                fbxLink = link;
+                if (candidate.matches(link.path))
+                {
+                    fbxLink = link;
+                    format = candidate;
+                    break;
+                }
+            }
+
+            if (fbxLink != null)
+            {
                 break;
             }
         }
@@ -119,7 +138,7 @@ public class FBXModelLoader implements IModelLoader
                 data = cached.data;
                 shapeKeyNames = cached.shapeKeyNames;
 
-                boolean texturesReextracted = ensureTexturesPresent(bytes, cached.texturedMaterials, models, model);
+                boolean texturesReextracted = ensureTexturesPresent(fbxLink, format, bytes, cached.texturedMaterials, models, model);
 
                 if (texturesReextracted)
                 {
@@ -133,7 +152,7 @@ public class FBXModelLoader implements IModelLoader
 
                 try
                 {
-                    scene = FBXAssimpImporter.importScene(bytes);
+                    scene = importScene(fbxLink, format, bytes, models.provider);
 
                     if (scene == null)
                     {
@@ -141,7 +160,7 @@ public class FBXModelLoader implements IModelLoader
                     }
 
                     shapeKeyNames = FBXShapeKeyNames.collectShapeKeyNames(scene);
-                    data = FBXConverter.convert(scene);
+                    data = FBXConverter.convert(scene, format.unitScale());
                     texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
                 }
                 finally
@@ -203,7 +222,7 @@ public class FBXModelLoader implements IModelLoader
         }
         catch (Throwable e)
         {
-            System.err.println("Failed to load FBX model for " + id + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            System.err.println("Failed to load " + format.name() + " model for " + id + ": " + e.getClass().getSimpleName() + " - " + e.getMessage());
         }
         return null;
     }
@@ -288,16 +307,12 @@ public class FBXModelLoader implements IModelLoader
             }
 
             Link chosen = saved.get(materialName);
-            Link resolved = chosen != null ? chosen : FBXTextureResolverCML.resolveMaterialTexture(materialName, model, links);
+            FBXMesh mesh = findMesh(data, materialName);
+            Link resolved = chosen != null ? chosen : FBXTextureResolverCML.resolveMaterialTexture(materialName, mesh, model, links);
 
-            if (resolved == null)
+            if (resolved == null && mesh != null && mesh.color != null)
             {
-                float[] color = findMeshColor(data, materialName);
-
-                if (color != null)
-                {
-                    resolved = FBXTextureResolverCML.colorLink(color);
-                }
+                resolved = FBXTextureResolverCML.colorLink(mesh.color);
             }
 
             if (resolved != null)
@@ -336,18 +351,37 @@ public class FBXModelLoader implements IModelLoader
         }
     }
 
-    /** Flat Base Color of the mesh (if any) that carries the given material name, or null. */
-    private static float[] findMeshColor(BOBJData data, String materialName)
+    /** The mesh carrying the given material name, for its texture reference and flat Base Color. */
+    private static FBXMesh findMesh(BOBJData data, String materialName)
     {
         for (BOBJMesh mesh : data.meshes)
         {
-            if (mesh instanceof FBXMesh fbxMesh && fbxMesh.color != null && materialName.equals(mesh.name))
+            if (mesh instanceof FBXMesh fbxMesh && materialName.equals(mesh.name))
             {
-                return fbxMesh.color;
+                return fbxMesh;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Imports through Assimp's own file IO when the asset is a real file, and
+     * only falls back to the in-memory import when it isn't (a zipped/packed
+     * source pack). The file path matters for the "separate" glTF export,
+     * whose {@code .bin} buffer and loose image files are referenced by
+     * relative URI and are simply unreachable from a bare byte buffer.
+     */
+    private static AIScene importScene(Link link, SceneFormat format, byte[] bytes, AssetProvider provider)
+    {
+        File file = provider.getFile(link);
+
+        if (file != null && file.isFile())
+        {
+            return FBXAssimpImporter.importScene(file, format);
+        }
+
+        return FBXAssimpImporter.importScene(bytes, format);
     }
 
     /**
@@ -356,7 +390,7 @@ public class FBXModelLoader implements IModelLoader
      * (folder deleted by the user), re-import purely to rerun texture
      * extraction.
      */
-    private static boolean ensureTexturesPresent(byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
+    private static boolean ensureTexturesPresent(Link link, SceneFormat format, byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
     {
         if (texturedMaterials == null || texturedMaterials.isEmpty())
         {
@@ -386,7 +420,7 @@ public class FBXModelLoader implements IModelLoader
 
         try
         {
-            scene = FBXAssimpImporter.importScene(bytes);
+            scene = importScene(link, format, bytes, models.provider);
 
             if (scene != null)
             {

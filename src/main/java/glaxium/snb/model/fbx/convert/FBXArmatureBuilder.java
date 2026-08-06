@@ -81,6 +81,128 @@ public final class FBXArmatureBuilder
     }
 
     /**
+     * Assimp's inverse-bind matrices are sometimes in <b>mesh-local</b> space
+     * (Blender FBX: IBMs in meters, mesh node carries the 100x scale separately)
+     * and sometimes already in <b>scene</b> space (glTF round-trips of Source/
+     * cm rigs: IBM^-1 ≈ nodeWorld, including the armature's 0.01 scale). Using
+     * the mesh-local boneSpace correction on a scene-space IBM leaves
+     * non-joint parents (COG, armature roots that glTF didn't list as skin
+     * joints) in a different unit from their skinned children -- animation
+     * deltas then pick up a 100x scale and the model vanishes.
+     */
+    public static boolean ibmInSceneSpace(Map<String, AIBone> skinnedBones, Map<String, Matrix4f> nodeWorldTransforms,
+            Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms)
+    {
+        int sceneVotes = 0;
+        int meshVotes = 0;
+
+        for (Map.Entry<String, AIBone> entry : skinnedBones.entrySet())
+        {
+            Matrix4f nodeWorld = nodeWorldTransforms.get(entry.getKey());
+
+            if (nodeWorld == null)
+            {
+                continue;
+            }
+
+            Matrix4f ibmInv = FBXMath.toMatrix4f(entry.getValue().mOffsetMatrix()).invert();
+            float errScene = translationDistance(ibmInv, nodeWorld);
+
+            Integer meshIndex = skinnedBoneMeshIndex.get(entry.getKey());
+            Matrix4f meshWorld = meshIndex == null ? null : meshTransforms.get(meshIndex);
+            float errMesh = Float.POSITIVE_INFINITY;
+
+            if (meshWorld != null)
+            {
+                Matrix4f meshLocal = new Matrix4f(meshWorld).invert().mul(nodeWorld);
+                errMesh = translationDistance(ibmInv, meshLocal);
+            }
+
+            if (errScene <= errMesh)
+            {
+                sceneVotes++;
+            }
+            else
+            {
+                meshVotes++;
+            }
+        }
+
+        return sceneVotes > meshVotes;
+    }
+
+    private static float translationDistance(Matrix4f a, Matrix4f b)
+    {
+        float dx = a.m30() - b.m30();
+        float dy = a.m31() - b.m31();
+        float dz = a.m32() - b.m32();
+
+        return (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    /**
+     * The transform that takes a raw node world matrix into the same space
+     * the skinned bones' rest matrices live in.
+     *
+     * <p>A skinned bone's rest comes from its inverse-bind (offset) matrix.
+     * When that IBM is mesh-local (Blender FBX), {@link #buildSkinnedHierarchy}
+     * lifts it with {@code rootCorrection * meshRotation}, and this method
+     * returns {@code rootCorrection * meshRotation * meshWorld^-1} so
+     * non-joint nodes land in the same space. When the IBM is already scene
+     * space (typical glTF), both paths use {@code rootCorrection} alone --
+     * dividing out {@code meshWorld} would re-introduce the centimetre unit
+     * the IBM already left behind.</p>
+     */
+    public static Matrix4f buildBoneSpace(Matrix4f rootCorrection, Map<String, Integer> skinnedBoneMeshIndex,
+            Map<Integer, Matrix4f> meshTransforms, boolean ibmInSceneSpace)
+    {
+        if (ibmInSceneSpace)
+        {
+            return new Matrix4f(rootCorrection);
+        }
+
+        Matrix4f meshWorld = firstSkinnedMeshTransform(skinnedBoneMeshIndex, meshTransforms);
+
+        if (meshWorld == null)
+        {
+            return new Matrix4f(rootCorrection);
+        }
+
+        Quaternionf rot = new Quaternionf();
+        meshWorld.getUnnormalizedRotation(rot);
+
+        return new Matrix4f(rootCorrection).rotate(rot).mul(new Matrix4f(meshWorld).invert());
+    }
+
+    /** @deprecated use {@link #buildBoneSpace(Matrix4f, Map, Map, boolean)} */
+    @Deprecated
+    public static Matrix4f buildBoneSpace(Matrix4f rootCorrection, Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms)
+    {
+        return buildBoneSpace(rootCorrection, skinnedBoneMeshIndex, meshTransforms, false);
+    }
+
+    /**
+     * The skinned mesh with the lowest index, so every caller that needs "the
+     * mesh space this rig's bind pose is expressed in" agrees on one answer.
+     * Rigs with several skinned meshes under one armature share the same node
+     * transform anyway.
+     */
+    public static Matrix4f firstSkinnedMeshTransform(Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms)
+    {
+        Integer meshIndex = null;
+
+        for (Integer candidate : skinnedBoneMeshIndex.values())
+        {
+            if (meshIndex == null || candidate < meshIndex)
+            {
+                meshIndex = candidate;
+            }
+        }
+
+        return meshIndex == null ? null : meshTransforms.get(meshIndex);
+    }
+
+    /**
      * Non-skinned path: gives every scene node its own bone — both
      * mesh-owning objects AND mesh-less "Empty" objects (Blockbench/Blender
      * locators, held-item points, camera targets, group pivots, etc.) —
@@ -162,9 +284,15 @@ public final class FBXArmatureBuilder
     /**
      * Skinned path: recursively builds the bone hierarchy from the node
      * tree, using each skinned bone's inverse-bind (offset) matrix for its
-     * rest pose.
+     * rest pose, and {@code boneSpace} (see {@link #buildBoneSpace}) for the
+     * nodes in the chain that aren't skinning bones so every bone's rest
+     * matrix ends up in one space.
+     *
+     * @param ibmInSceneSpace when true, IBMs already include the mesh node
+     *                        transform -- skip the mesh-rotation multiply that
+     *                        mesh-local Blender FBX IBMs need
      */
-    public static void buildSkinnedHierarchy(AINode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, AIBone> skinnedBones, Map<String, Matrix4f> boneMeshRotations, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ)
+    public static void buildSkinnedHierarchy(AINode node, String parentName, Matrix4f parentGlobal, BOBJArmature armature, Map<String, AIBone> skinnedBones, Map<String, Matrix4f> boneMeshRotations, Set<String> neededNodes, float[] globalScale, Matrix4f rootCorrection, Matrix4f boneSpace, boolean ibmInSceneSpace, float offsetX, float offsetY, float offsetZ)
     {
         String name = node.mName().dataString();
         Matrix4f local = FBXMath.toMatrix4f(node.mTransformation());
@@ -181,10 +309,13 @@ public final class FBXArmatureBuilder
                 Matrix4f offset = FBXMath.toMatrix4f(skinnedBones.get(name).mOffsetMatrix());
                 Matrix4f boneWorld = offset.invert();
 
-                Matrix4f meshRotation = boneMeshRotations.get(name);
-                if (meshRotation != null)
+                if (!ibmInSceneSpace)
                 {
-                    boneWorld = new Matrix4f(meshRotation).mul(boneWorld);
+                    Matrix4f meshRotation = boneMeshRotations.get(name);
+                    if (meshRotation != null)
+                    {
+                        boneWorld = new Matrix4f(meshRotation).mul(boneWorld);
+                    }
                 }
 
                 boneMat = new Matrix4f(rootCorrection).mul(boneWorld);
@@ -199,17 +330,21 @@ public final class FBXArmatureBuilder
             }
             else
             {
-                boneMat = new Matrix4f(global);
+                boneMat = new Matrix4f(boneSpace).mul(global);
+
+                boneMat.m30(boneMat.m30() * globalScale[0]);
+                boneMat.m31(boneMat.m31() * globalScale[0]);
+                boneMat.m32(boneMat.m32() * globalScale[0]);
+
+                boneMat.m30(boneMat.m30() + offsetX);
+                boneMat.m31(boneMat.m31() + offsetY);
+                boneMat.m32(boneMat.m32() + offsetZ);
             }
 
-            if (armature.bones.isEmpty())
-            {
-                if (!skinnedBones.containsKey(name))
-                {
-                    boneMat.mul(rootCorrection);
-                }
-            }
-
+            /* Strip inherited scene/IBM scale so rest poses match Assimp node
+             * animation keys (which carry scale 1 on the bone locals, with any
+             * unit conversion sitting on a parent node). Leaving a 0.01 IBM
+             * scale here made every animated delta scale by 100. */
             boneMat.normalize3x3();
 
             BOBJBone bone = new BOBJBone(armature.bones.size(), name, parentName, boneMat);
@@ -223,7 +358,6 @@ public final class FBXArmatureBuilder
         for (int i = 0; i < numChildren; i++)
         {
             AINode child = AINode.create(children.get(i));
-            buildSkinnedHierarchy(child, nextParent, global, armature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
+            buildSkinnedHierarchy(child, nextParent, global, armature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, boneSpace, ibmInSceneSpace, offsetX, offsetY, offsetZ);
         }
-    }
-}
+    }}

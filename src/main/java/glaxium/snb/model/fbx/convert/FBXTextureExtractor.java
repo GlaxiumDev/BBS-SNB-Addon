@@ -67,12 +67,6 @@ public final class FBXTextureExtractor
                 continue;
             }
 
-            /* This material is supposed to have a PNG on disk, regardless of whether we're about
-             * to write one this call or it's already there - FBXModelLoader caches this set so it
-             * can tell, on a load-cache hit (no fresh AIScene at all), whether a previously
-             * extracted texture has since been deleted and needs re-extracting. */
-            texturedMaterials.add(materialName);
-
             File folder = provider.getFile(model.combine("textures/" + materialName));
             if (folder == null)
             {
@@ -80,8 +74,20 @@ public final class FBXTextureExtractor
             }
 
             File targetFile = new File(folder, "default.png");
+
+            /* A material only goes into texturedMaterials once there really is
+             * an extractable PNG for it, either already on disk or written just
+             * below - FBXModelLoader caches this set so it can tell, on a
+             * load-cache hit (no fresh AIScene at all), whether an extracted
+             * texture has since been deleted and needs re-extracting. Tracking
+             * a material whose texture is an EXTERNAL file reference instead
+             * (nothing embedded to extract, common in "separate" glTF exports)
+             * would make that check fail forever and re-import the model from
+             * scratch on every single load, defeating the cache entirely. */
             if (targetFile.exists())
             {
+                texturedMaterials.add(materialName);
+
                 continue;
             }
 
@@ -100,6 +106,8 @@ public final class FBXTextureExtractor
                 {
                     folder.mkdirs();
                     ImageIO.write(image, "png", targetFile);
+
+                    texturedMaterials.add(materialName);
                 }
             }
             catch (Exception e)

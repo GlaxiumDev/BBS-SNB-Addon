@@ -48,7 +48,9 @@ import java.util.Set;
  * <p>Coordinate handling:
  * <ul>
  *   <li>Blender bakes a 100x (cm->m) scale into the FBX node transform, so
- *       vertices are pre-multiplied by {@link #FBX_UNIT_SCALE} (0.01).</li>
+ *       vertices are pre-multiplied by {@link #FBX_UNIT_SCALE} (0.01). Formats
+ *       that are already in meters (glTF/GLB) pass 1.0 instead -- see
+ *       {@link #convert(AIScene, float)}.</li>
  *   <li>No auto-centering, grounding, or height-normalization. The model keeps
  *       the exact position/scale it had in Blender.</li>
  *   <li>For non-skinned scenes, each object becomes its own bone named after the
@@ -62,6 +64,19 @@ public class FBXConverter
     private static final float FBX_UNIT_SCALE = 0.01f;
 
     public static BOBJData convert(AIScene scene)
+    {
+        return convert(scene, FBX_UNIT_SCALE);
+    }
+
+    /**
+     * @param unitScale scale applied to non-skinned geometry to cancel out
+     * whatever the source format baked into its node transforms -- {@link
+     * #FBX_UNIT_SCALE} for FBX, 1.0 for the formats that are already in
+     * meters (see {@code SceneFormat}). Skinned scenes ignore it entirely and
+     * always use 1.0, since their vertices come in bind (meter) space with no
+     * node scale applied.
+     */
+    public static BOBJData convert(AIScene scene, float unitScale)
     {
         List<Vertex> vertices = new ArrayList<>();
         List<Vector2d> textures = new ArrayList<>();
@@ -88,22 +103,44 @@ public class FBXConverter
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
         Map<String, AIBone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
         Map<String, Matrix4f> boneMeshRotations = FBXArmatureBuilder.collectBoneMeshRotations(skinnedBoneMeshIndex, meshTransforms);
+        boolean ibmInSceneSpace = FBXArmatureBuilder.ibmInSceneSpace(skinnedBones, nodeWorldTransforms, skinnedBoneMeshIndex, meshTransforms);
 
         BOBJArmature globalArmature = new BOBJArmature("Armature");
         armatures.put(globalArmature.name, globalArmature);
 
-        float[] globalScale = {FBX_UNIT_SCALE};
+        float[] globalScale = {unitScale};
         Set<String> neededNodes = new HashSet<>();
         int numMeshes = scene.mNumMeshes();
+
+        Matrix4f boneSpace = FBXArmatureBuilder.buildBoneSpace(rootCorrection, skinnedBoneMeshIndex, meshTransforms, ibmInSceneSpace);
+        float animScale = unitScale;
 
         if (!skinnedBones.isEmpty())
         {
             FBXArmatureBuilder.markNeededNodes(rootNode, skinnedBones.keySet(), neededNodes);
 
-            // Skinned vertices are already in bind (meter) space and never
-            // receive the node's baked 100x cm scale, so the 0.01 unit-cancel
-            // must NOT apply. Set to 1.0 = true scale (fixes the ~150x shrink).
-            globalScale[0] = 1.0f;
+            /* Skinned Blender FBX: vertices are already meters and the 100x
+             * lives on the mesh node (ignored for skinned verts) -- keep 1.0.
+             * Skinned Source/cm FBX: vertices AND bones are centimetres with
+             * no 100x on the mesh node -- apply 0.01 or the model is ~100x
+             * too tall. glTF that already baked 0.01 into the hierarchy stays
+             * at 1.0 for geometry (mesh AABB is meters). */
+            boolean centimeterGeometry = needsCentimeterScale(scene, meshTransforms);
+            globalScale[0] = centimeterGeometry ? FBX_UNIT_SCALE : 1.0f;
+            animScale = globalScale[0];
+
+            /* Scene-space IBMs (glTF): geometry is already meters, but Assimp
+             * node animation keys still carry the pre-scale local translations
+             * (cm). Scale those deltas by the mesh node's scale so a camera
+             * key of 139 doesn't move the bone 139 meters. */
+            if (ibmInSceneSpace)
+            {
+                float meshScale = meshNodeScale(skinnedBoneMeshIndex, meshTransforms);
+                if (meshScale > 0F && meshScale < 0.5F)
+                {
+                    animScale = meshScale;
+                }
+            }
         }
         else
         {
@@ -112,6 +149,7 @@ public class FBXConverter
             // meshes pivot around their own point and Empties show up in BBS
             // as animatable, nestable limbs/groups just like mesh objects.
             FBXArmatureBuilder.buildObjectBones(globalArmature, nodeWorldTransforms, nodeParents, rootCorrection, globalScale[0]);
+            animScale = globalScale[0];
         }
 
         // Respect Blender's coordinates exactly: no centering/grounding/normalization.
@@ -122,7 +160,7 @@ public class FBXConverter
         if (!skinnedBones.isEmpty())
         {
             Matrix4f initialGlobal = new Matrix4f().translate(offsetX, offsetY, offsetZ);
-            FBXArmatureBuilder.buildSkinnedHierarchy(rootNode, "", initialGlobal, globalArmature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, offsetX, offsetY, offsetZ);
+            FBXArmatureBuilder.buildSkinnedHierarchy(rootNode, "", initialGlobal, globalArmature, skinnedBones, boneMeshRotations, neededNodes, globalScale, rootCorrection, boneSpace, ibmInSceneSpace, offsetX, offsetY, offsetZ);
         }
 
         for (int i = 0; i < numMeshes; i++)
@@ -146,12 +184,68 @@ public class FBXConverter
          * unconditionally whenever the scene has animation data. */
         if (scene.mNumAnimations() > 0)
         {
-            Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature);
+            Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature, skinnedBoneMeshIndex, meshTransforms, nodeWorldTransforms, ibmInSceneSpace, nodeLocals);
 
-            FBXAnimationBaker.processAnimations(scene, actions, globalArmature, nodeLocals, bindLocals, globalScale[0]);
+            FBXAnimationBaker.processAnimations(scene, actions, globalArmature, nodeLocals, bindLocals, animScale);
         }
 
         return new BOBJData(vertices, textures, normals, meshes, actions, armatures);
+    }
+
+    private static float meshNodeScale(Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms)
+    {
+        Matrix4f meshWorld = FBXArmatureBuilder.firstSkinnedMeshTransform(skinnedBoneMeshIndex, meshTransforms);
+
+        if (meshWorld == null)
+        {
+            return 1F;
+        }
+
+        Vector3f scale = new Vector3f();
+        meshWorld.getScale(scale);
+
+        return Math.max(scale.x, Math.max(scale.y, scale.z));
+    }
+
+    /**
+     * True when mesh geometry is in centimetres (AABB extent &gt; ~10) and the
+     * mesh nodes don't already carry Blender's compensating 100x scale. That
+     * pattern is Source-engine / SFM FBX exports; applying {@link #FBX_UNIT_SCALE}
+     * brings them down to Minecraft-sized meters. Returns false for Blender
+     * FBX (small AABB, 100x on the node) and for glTF that already scaled.
+     */
+    private static boolean needsCentimeterScale(AIScene scene, Map<Integer, Matrix4f> meshTransforms)
+    {
+        float maxExtent = 0F;
+
+        for (int i = 0; i < scene.mNumMeshes(); i++)
+        {
+            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
+            float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
+            float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+            var verts = mesh.mVertices();
+
+            while (verts.remaining() > 0)
+            {
+                var v = verts.get();
+                minX = Math.min(minX, v.x()); maxX = Math.max(maxX, v.x());
+                minY = Math.min(minY, v.y()); maxY = Math.max(maxY, v.y());
+                minZ = Math.min(minZ, v.z()); maxZ = Math.max(maxZ, v.z());
+            }
+
+            maxExtent = Math.max(maxExtent, Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ)));
+        }
+
+        float maxMeshScale = 1F;
+
+        for (Matrix4f meshWorld : meshTransforms.values())
+        {
+            Vector3f scale = new Vector3f();
+            meshWorld.getScale(scale);
+            maxMeshScale = Math.max(maxMeshScale, Math.max(scale.x, Math.max(scale.y, scale.z)));
+        }
+
+        return maxExtent > 10F && maxMeshScale < 10F;
     }
 
     /**

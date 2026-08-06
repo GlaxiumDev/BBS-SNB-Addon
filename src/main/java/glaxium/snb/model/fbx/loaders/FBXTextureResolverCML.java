@@ -92,6 +92,21 @@ public final class FBXTextureResolverCML
         return findMaterialTexture(links, model, materialName);
     }
 
+    /**
+     * Folder-convention lookup for one material, then that material's own
+     * external texture file reference as a fallback. Worth passing the mesh
+     * whenever it's available: a model whose textures are loose image files
+     * next to it rather than embedded (the usual "separate" glTF export, and
+     * FBX exported without "Embed Textures") has nothing under
+     * {@code textures/<material>/} for the folder lookup to find, so
+     * per-material textures would otherwise all collapse to the one
+     * model-wide texture {@link #resolveTexture} picks.
+     */
+    public static Link resolveMaterialTexture(String materialName, FBXMesh mesh, Link model, Collection<Link> links)
+    {
+        return resolveOne(materialName, mesh, model, links);
+    }
+
     private static Link resolveOne(String materialName, FBXMesh mesh, Link model, Collection<Link> links)
     {
         if (materialName != null && !materialName.isEmpty())

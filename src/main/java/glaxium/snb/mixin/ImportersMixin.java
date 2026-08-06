@@ -1,6 +1,7 @@
 package glaxium.snb.mixin;
 
 import glaxium.snb.importers.FBXImporter;
+import glaxium.snb.importers.GLTFImporter;
 
 import mchorse.bbs_mod.importers.Importers;
 import mchorse.bbs_mod.importers.types.IImporter;
@@ -15,7 +16,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.List;
 
 /**
- * Registers {@link FBXImporter} with BBS's importer list.
+ * Registers {@link FBXImporter} and {@link GLTFImporter} with BBS's importer
+ * list. Two importers rather than one so the picker's label matches the file
+ * type the user is actually dropping in, and because glTF needs its own
+ * sidecar-copying import step.
  *
  * <p>Fork-agnostic: BBS Base, BBS FS and BBS CML EDITION all declare the same
  * {@code private final static List<IImporter> importers} field, populated in
@@ -33,5 +37,6 @@ public class ImportersMixin
     private static void bbsFbx$registerFbxImporter(CallbackInfo info)
     {
         importers.add(new FBXImporter());
+        importers.add(new GLTFImporter());
     }
 }

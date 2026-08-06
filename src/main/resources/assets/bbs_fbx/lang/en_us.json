@@ -1,5 +1,6 @@
 {
   "bbs.form.bbs_fbx.fbx": "FBX",
   "bbs.form.fbx": "FBX",
-  "bbs_fbx.importer.name": "FBX Model"
+  "bbs_fbx.importer.name": "FBX Model",
+  "bbs_fbx.importer.gltf.name": "glTF Model"
 }

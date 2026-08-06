@@ -1,16 +1,18 @@
 package glaxium.snb.model.fbx.loaders;
 
 import org.lwjgl.BufferUtils;
+import org.lwjgl.assimp.AIFileIO;
 import org.lwjgl.assimp.AIPropertyStore;
 import org.lwjgl.assimp.AIScene;
 import org.lwjgl.assimp.Assimp;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 
 /**
- * Drives Assimp's import of a raw FBX byte buffer into an AIScene, with the
- * property store setup (pivot handling, scale factor) and post-process flags
- * BBS FS needs.
+ * Drives Assimp's import of a model file into an AIScene, with the property
+ * store setup (pivot handling, scale factor) and post-process flags BBS needs
+ * per {@link SceneFormat}.
  */
 public final class FBXAssimpImporter
 {
@@ -22,38 +24,81 @@ public final class FBXAssimpImporter
      */
     public static AIScene importScene(byte[] bytes)
     {
+        return importScene(bytes, SceneFormat.FBX);
+    }
+
+    /**
+     * Imports straight from bytes. Self-contained formats only in practice --
+     * a {@code .gltf} that keeps its buffers/images in sibling files can't
+     * resolve them without a filesystem, which is why
+     * {@link #importScene(File, SceneFormat)} is preferred whenever the asset
+     * is a real file on disk.
+     */
+    public static AIScene importScene(byte[] bytes, SceneFormat format)
+    {
         ByteBuffer buffer = BufferUtils.createByteBuffer(bytes.length);
         buffer.put(bytes);
         buffer.flip();
 
-        AIPropertyStore store = Assimp.aiCreatePropertyStore();
-        AIScene scene;
+        AIPropertyStore store = createStore(format);
+
         try
         {
-            assert store != null;
-            Assimp.aiSetImportPropertyInteger(store, Assimp.AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
-            Assimp.aiSetImportPropertyFloat(store, Assimp.AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, 1.0f);
-
-            scene = Assimp.aiImportFileFromMemoryWithProperties(buffer,
-                    Assimp.aiProcess_Triangulate |
-                            Assimp.aiProcess_FlipUVs |
-                            Assimp.aiProcess_LimitBoneWeights |
-                            Assimp.aiProcess_JoinIdenticalVertices |
-                            Assimp.aiProcess_GenSmoothNormals |
-                            Assimp.aiProcess_PopulateArmatureData,
-                    (ByteBuffer) null,
-                    store);
+            return check(Assimp.aiImportFileFromMemoryWithProperties(buffer,
+                    format.postProcessFlags(),
+                    format.hint(),
+                    store), format);
         }
         finally
         {
-            assert store != null;
             Assimp.aiReleasePropertyStore(store);
         }
+    }
 
+    /**
+     * Imports through Assimp's own file IO so relative references resolve
+     * against the model's folder. Required for the common "separate" glTF
+     * export ({@code .gltf} + {@code .bin} + loose image files) and harmless
+     * for the self-contained ones.
+     */
+    public static AIScene importScene(File file, SceneFormat format)
+    {
+        AIPropertyStore store = createStore(format);
+
+        try
+        {
+            return check(Assimp.aiImportFileExWithProperties(file.getAbsolutePath(),
+                    format.postProcessFlags(),
+                    (AIFileIO) null,
+                    store), format);
+        }
+        finally
+        {
+            Assimp.aiReleasePropertyStore(store);
+        }
+    }
+
+    private static AIPropertyStore createStore(SceneFormat format)
+    {
+        AIPropertyStore store = Assimp.aiCreatePropertyStore();
+
+        assert store != null;
+
+        if (format.fbxProperties())
+        {
+            Assimp.aiSetImportPropertyInteger(store, Assimp.AI_CONFIG_IMPORT_FBX_PRESERVE_PIVOTS, 0);
+        }
+
+        Assimp.aiSetImportPropertyFloat(store, Assimp.AI_CONFIG_GLOBAL_SCALE_FACTOR_KEY, 1.0f);
+
+        return store;
+    }
+
+    private static AIScene check(AIScene scene, SceneFormat format)
+    {
         if (scene == null)
         {
-            System.err.println("Error loading FBX model: " + Assimp.aiGetErrorString());
-            return null;
+            System.err.println("Error loading " + format.name() + " model: " + Assimp.aiGetErrorString());
         }
 
         return scene;

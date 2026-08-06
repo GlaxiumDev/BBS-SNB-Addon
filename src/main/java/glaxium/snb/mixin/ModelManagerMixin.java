@@ -3,6 +3,7 @@ package glaxium.snb.mixin;
 import glaxium.snb.BBSFbxAddon;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
+import glaxium.snb.model.fbx.loaders.SceneFormat;
 
 import mchorse.bbs_mod.cubic.model.ModelManager;
 import mchorse.bbs_mod.resources.Link;
@@ -14,9 +15,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Registers the FBX model loader with {@link ModelManager} and teaches it
- * which paths under {@code models/} are FBX files that should trigger a
- * reload watch.
+ * Registers the Assimp model loader with {@link ModelManager} and teaches it
+ * which paths under {@code models/} are importable model files ({@link
+ * SceneFormat}: {@code .fbx}, {@code .gltf}, {@code .glb}) that should trigger
+ * a reload watch.
  *
  * <p>Fork-agnostic on purpose: {@code setupLoaders}, {@code isRelodable(Link)},
  * the public {@code loaders} field, and {@code reload()} all have the exact
@@ -36,7 +38,7 @@ public class ModelManagerMixin
     {
         ModelManager manager = (ModelManager) (Object) this;
         manager.loaders.add(new FBXModelLoader());
-        BBSFbxAddon.LOGGER.info("FBX model loader registered");
+        BBSFbxAddon.LOGGER.info("FBX/glTF model loader registered");
     }
 
     @Inject(method = "isRelodable", at = @At("HEAD"), cancellable = true, remap = false)
@@ -47,7 +49,7 @@ public class ModelManagerMixin
         if (path.startsWith(ModelManager.MODELS_PREFIX)
                 && !path.contains("/animations/")
                 && !path.contains("/shapes/")
-                && path.toLowerCase().endsWith(".fbx"))
+                && SceneFormat.fromPath(path) != null)
         {
             info.setReturnValue(true);
         }

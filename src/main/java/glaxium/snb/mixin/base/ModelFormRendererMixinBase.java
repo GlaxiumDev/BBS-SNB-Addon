@@ -43,10 +43,7 @@ import java.util.function.Supplier;
 @Mixin(value = ModelFormRenderer.class, remap = false)
 public abstract class ModelFormRendererMixinBase
 {
-    @Inject(
-            method = "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;F)V",
-            at = @At("HEAD"), remap = false
-    )
+    @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
     private void bbsFbx$pushMaterialOverrides(
             IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
             int light, int overlay, Color color, boolean ui, StencilMap stencilMap, float transition,
@@ -64,10 +61,7 @@ public abstract class ModelFormRendererMixinBase
         }
     }
 
-    @Inject(
-            method = "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;F)V",
-            at = @At("RETURN"), remap = false
-    )
+    @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
     private void bbsFbx$popMaterialOverrides(
             IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
             int light, int overlay, Color color, boolean ui, StencilMap stencilMap, float transition,

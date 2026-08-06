@@ -40,10 +40,13 @@ dependencies {
 	// The BBS jar you're building against (Base, FS, or CML EDITION): place it here.
 	modImplementation fileTree(dir: "libs", include: "*.jar")
 
-	// FBX Implementation: bundle only the Assimp module (matching Minecraft 1.20.4's LWJGL version).
+	// Assimp (LWJGL 3.3.2, matching Minecraft 1.20.4). Almost the entire jar
+	// weight is these native binaries (~3-4 MB each); the Java addon itself is
+	// a few hundred KB. Windows ARM is omitted -- almost no Minecraft players
+	// use it, and dropping it saves ~2.7 MB. Keep windows/linux/macos(+arm64)
+	// so a single jar still runs on the platforms that matter.
 	implementation(include("org.lwjgl:lwjgl-assimp:3.3.2"))
 	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows-arm64"))
 	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-linux"))
 	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-macos"))
 	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-macos-arm64"))

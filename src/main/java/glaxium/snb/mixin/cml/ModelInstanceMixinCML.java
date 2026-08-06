@@ -57,7 +57,7 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     @Shadow public String id;
 
     @Redirect(
-            method = "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Lmchorse/bbs_mod/resources/Link;)V",
+            method = "render",
             at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/cubic/render/vao/BOBJModelVAO;updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;)V"),
             remap = false
     )
