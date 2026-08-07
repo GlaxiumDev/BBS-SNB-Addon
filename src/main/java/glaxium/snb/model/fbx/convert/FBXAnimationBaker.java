@@ -68,7 +68,9 @@ public final class FBXAnimationBaker
          * IBM local leaves a constant centimetre-sized translation on every
          * bone. Prefer the node local as the animation rest so the delta is
          * computed in the same unit the keys use; geom/animScale then
-         * converts the result into bone-matrix meters. */
+         * converts the result into bone-matrix meters. Keep scale on the
+         * rest: orthonormalizing a 0.01 parent would bake a delta scale of
+         * 0.01 and shrink the model on play. */
         if (ibmInSceneSpace && nodeLocals != null)
         {
             Map<String, Matrix4f> bindLocals = new HashMap<>();
@@ -79,10 +81,6 @@ public final class FBXAnimationBaker
 
                 if (local != null)
                 {
-                    /* Keep scale: orthonormalizing would turn a unit-conversion
-                     * parent (scale 0.01) into rest scale 1, so the still-0.01
-                     * animation keys bake a delta scale of 0.01 and the whole
-                     * model shrinks to a speck the moment any clip plays. */
                     bindLocals.put(bone.name, new Matrix4f(local));
                 }
             }

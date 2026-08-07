@@ -167,7 +167,7 @@ public class FBXConverter
         {
             AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
             String objectBoneName = meshNodeNames.getOrDefault(i, "object_" + i);
-            FBXMeshBuilder.buildMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName);
+            FBXMeshBuilder.buildMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName, ibmInSceneSpace);
         }
 
         FBXMeshBuilder.finalizeWeights(vertices, globalArmature);

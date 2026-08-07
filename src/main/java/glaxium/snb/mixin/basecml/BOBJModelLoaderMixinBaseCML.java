@@ -25,6 +25,7 @@ import mchorse.bbs_mod.resources.Link;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -76,6 +77,15 @@ public abstract class BOBJModelLoaderMixinBaseCML
             String id, ModelManager models, Link model, Collection<Link> links, MapType config,
             CallbackInfoReturnable<ModelInstance> cir)
     {
+        /* FBX/glTF folders have no .bobj — bail before getAsset so every Assimp
+         * model does not pay a FileNotFoundException + stack dump on the BOBJ
+         * loader that runs first in ModelManager.loadModel. */
+        if (!bbsFbx$hasBobj(links))
+        {
+            cir.setReturnValue(null);
+            return;
+        }
+
         Link modelBOBJ = IModelLoader.getLink(model.combine("model.bobj"), links, ".bobj");
         Link modelTexture = IModelLoader.getLink(model.combine("model.png"), links, ".png");
 
@@ -163,11 +173,32 @@ public abstract class BOBJModelLoaderMixinBaseCML
                 cir.setReturnValue(instance);
             }
         }
+        catch (java.io.FileNotFoundException e)
+        {
+            cir.setReturnValue(null);
+        }
         catch (Exception e)
         {
             e.printStackTrace();
             cir.setReturnValue(null);
         }
+    }
+
+    @Unique
+    private static boolean bbsFbx$hasBobj(Collection<Link> links)
+    {
+        if (links == null)
+        {
+            return false;
+        }
+        for (Link link : links)
+        {
+            if (link != null && link.path != null && link.path.endsWith(".bobj"))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -44,6 +44,19 @@ public final class FBXMeshBuilder
      */
     public static void buildMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName)
     {
+        buildMesh(scene, aiMesh, meshIndex, vertices, textures, normals, meshes, armature, scaleFactor, rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName, false);
+    }
+
+    /**
+     * @param ibmInSceneSpace when true (typical glTF), inverse-binds already
+     *                        match joint world matrices — do <em>not</em> bake
+     *                        the mesh node's rotation into vertices. Applying
+     *                        it there (while bones skip it) twists Mixamo-style
+     *                        rigs whose mesh carries a non-identity rotation
+     *                        (e.g. Verity GLB: ~180° yaw + tilt).
+     */
+    public static void buildMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName, boolean ibmInSceneSpace)
+    {
         FBXMesh mesh = new FBXMesh(aiMesh.mName().dataString());
         mesh.armatureName = armature.name;
         mesh.armature = armature;
@@ -52,7 +65,10 @@ public final class FBXMeshBuilder
         boolean skinned = aiMesh.mNumBones() > 0;
         boolean applyNodeTransform = !skinned && meshTransform != null;
         Matrix4f meshRotationOnly = null;
-        if (skinned && meshTransform != null)
+        /* Mesh-local IBMs (Blender FBX): lift verts by the mesh rotation so
+         * they share the space boneWorld = meshRot * ibm^-1 uses. Scene-space
+         * IBMs already include that, so rotating verts again = spaghetti. */
+        if (skinned && meshTransform != null && !ibmInSceneSpace)
         {
             Quaternionf rot = new Quaternionf();
             meshTransform.getUnnormalizedRotation(rot);
