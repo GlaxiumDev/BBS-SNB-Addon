@@ -45,6 +45,8 @@ dependencies {
 	// a few hundred KB. Windows ARM is omitted -- almost no Minecraft players
 	// use it, and dropping it saves ~2.7 MB. Keep windows/linux/macos(+arm64)
 	// so a single jar still runs on the platforms that matter.
+	// Note: Assimp format importers are compiled into the native libs; they
+	// cannot be stripped from the stock LWJGL Assimp jars without a custom build.
 	implementation(include("org.lwjgl:lwjgl-assimp:3.3.2"))
 	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-windows"))
 	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.2:natives-linux"))

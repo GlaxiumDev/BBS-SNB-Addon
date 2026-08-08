@@ -9,6 +9,7 @@ import glaxium.snb.model.fbx.convert.FBXTextureExtractor;
 
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
+import mchorse.bbs_mod.bobj.BOBJBone;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJMesh;
 import mchorse.bbs_mod.bobj.BOBJLoader.Vertex;
@@ -150,6 +151,18 @@ public class FBXConverter
             // as animatable, nestable limbs/groups just like mesh objects.
             FBXArmatureBuilder.buildObjectBones(globalArmature, nodeWorldTransforms, nodeParents, rootCorrection, globalScale[0]);
             animScale = globalScale[0];
+
+            /* Blender glTF/GLB often puts a 0.01 unit scale on a parent Empty
+             * while child object locals stay in centimetres. Object bones
+             * normalize that scale away (meter rests), but animation keys
+             * still use the raw locals — without animScale the deltas are
+             * ~100x and per-object clips explode. FBX already gets 0.01 from
+             * unitScale; pick up the same bridge from the node tree here. */
+            float bridge = unitBridgeScale(nodeLocals);
+            if (bridge > 0F && bridge < 0.5F)
+            {
+                animScale = bridge;
+            }
         }
 
         // Respect Blender's coordinates exactly: no centering/grounding/normalization.
@@ -186,6 +199,21 @@ public class FBXConverter
         {
             Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature, skinnedBoneMeshIndex, meshTransforms, nodeWorldTransforms, ibmInSceneSpace, nodeLocals);
 
+            /* Non-skinned: no IBMs — always rest against Assimp node locals
+             * (same space as the animation keys). */
+            if (skinnedBones.isEmpty() && nodeLocals != null && !nodeLocals.isEmpty())
+            {
+                bindLocals = new HashMap<>();
+                for (BOBJBone bone : globalArmature.orderedBones)
+                {
+                    Matrix4f local = nodeLocals.get(bone.name);
+                    if (local != null)
+                    {
+                        bindLocals.put(bone.name, new Matrix4f(local));
+                    }
+                }
+            }
+
             FBXAnimationBaker.processAnimations(scene, actions, globalArmature, nodeLocals, bindLocals, animScale);
         }
 
@@ -205,6 +233,29 @@ public class FBXConverter
         meshWorld.getScale(scale);
 
         return Math.max(scale.x, Math.max(scale.y, scale.z));
+    }
+
+    /**
+     * Smallest node-local scale in {@code (0, 0.5)} — Blender's glTF unit
+     * bridge (typically 0.01). Returns 1 when the hierarchy has no such node.
+     */
+    private static float unitBridgeScale(Map<String, Matrix4f> nodeLocals)
+    {
+        float bridge = 1F;
+
+        for (Matrix4f local : nodeLocals.values())
+        {
+            Vector3f scale = new Vector3f();
+            local.getScale(scale);
+            float s = Math.max(scale.x, Math.max(scale.y, scale.z));
+
+            if (s > 1e-6F && s < 0.5F)
+            {
+                bridge = Math.min(bridge, s);
+            }
+        }
+
+        return bridge;
     }
 
     /**
