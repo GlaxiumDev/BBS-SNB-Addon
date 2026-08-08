@@ -9,6 +9,7 @@
     "ImportersMixin",
     "BOBJModelMixin",
     "BOBJModelVAOMixin",
+    "AnimatorMixin",
     "base.ModelInstanceMixinBase",
     "fs.ModelInstanceMixinFS",
     "cml.ModelInstanceMixinCML",
