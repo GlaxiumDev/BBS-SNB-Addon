@@ -1,6 +1,7 @@
 package glaxium.snb.mixin.fs;
 
 import glaxium.snb.render.CurrentMaterialTextureOverrides;
+import glaxium.snb.render.TextureBindRestore;
 import glaxium.snb.render.MultiMaterialTriangleDraw;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 
@@ -86,78 +87,84 @@ public abstract class BOBJModelVAOMixinFS
 
         info.cancel();
 
-        int previousTexture = com.mojang.blaze3d.systems.RenderSystem.getShaderTexture(0);
+        TextureBindRestore.Snapshot textureSnapshot = TextureBindRestore.capture();
+        int previousTexture = textureSnapshot.shaderTexture0();
         int[][] materialRuns = fbxData.getMaterialDrawRuns();
         boolean hasShaders = BBSRendering.isIrisShadersEnabled();
-
-        GL30.glVertexAttrib4f(Attributes.COLOR, r, g, b, a);
-        GL30.glVertexAttribI2i(Attributes.OVERLAY_UV, overlay & '\uffff', overlay >> 16 & '\uffff');
-        GL30.glVertexAttribI2i(Attributes.LIGHTMAP_UV, light & '\uffff', light >> 16 & '\uffff');
-
         int currentVAO = GL30.glGetInteger(GL30.GL_VERTEX_ARRAY_BINDING);
         int currentElementArrayBuffer = GL30.glGetInteger(GL30.GL_ELEMENT_ARRAY_BUFFER_BINDING);
 
-        ModelVAORenderer.setupUniforms(stack, shader);
-
-        shader.bind();
-
-        GL30.glBindVertexArray(this.vao);
-
-        GL30.glEnableVertexAttribArray(Attributes.POSITION);
-        GL30.glEnableVertexAttribArray(Attributes.TEXTURE_UV);
-        GL30.glEnableVertexAttribArray(Attributes.NORMAL);
-
-        if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
-        if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
-
-        String[] materialNames = fbxData.materialNames;
-        Link[] materialTextures = fbxData.materialTextures;
-        java.util.Map<String, Link> overrides = CurrentMaterialTextureOverrides.current();
-
-        for (int m = 0; m < materialNames.length; m++)
+        try
         {
-            Link override = overrides.get(materialNames[m]);
-            Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
-            Link texture = override != null ? override : sharedDefault;
+            GL30.glVertexAttrib4f(Attributes.COLOR, r, g, b, a);
+            GL30.glVertexAttribI2i(Attributes.OVERLAY_UV, overlay & '\uffff', overlay >> 16 & '\uffff');
+            GL30.glVertexAttribI2i(Attributes.LIGHTMAP_UV, light & '\uffff', light >> 16 & '\uffff');
 
-            if (texture != null)
+            ModelVAORenderer.setupUniforms(stack, shader);
+
+            shader.bind();
+
+            GL30.glBindVertexArray(this.vao);
+
+            GL30.glEnableVertexAttribArray(Attributes.POSITION);
+            GL30.glEnableVertexAttribArray(Attributes.TEXTURE_UV);
+            GL30.glEnableVertexAttribArray(Attributes.NORMAL);
+
+            if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
+            if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+
+            String[] materialNames = fbxData.materialNames;
+            Link[] materialTextures = fbxData.materialTextures;
+            java.util.Map<String, Link> overrides = CurrentMaterialTextureOverrides.current();
+
+            for (int m = 0; m < materialNames.length; m++)
             {
-                // bindTexture(), not just .bind(): the raw .bind() only calls glBindTexture, which
-                // bypasses Iris's PBR hook -- Iris applies the _n/_s companion maps as a side effect
-                // of RenderSystem.setShaderTexture (its onSetShaderTexture mixin), so a material bound
-                // only through raw GL never gets its _s specular map. This is what makes multi-material
-                // models match single-texture ones (whose native path goes through bindTexture). Same
-                // fix as mixin.cml.BOBJModelVAOMixinCML.
-                BBSModClient.getTextures().bindTexture(texture);
+                Link override = overrides.get(materialNames[m]);
+                Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
+                Link texture = override != null ? override : sharedDefault;
 
-                // Assert active unit 0 before the raw bind: setShaderTexture only records the
-                // tracked value, so the actual GL bind is Texture.bind() -> glBindTexture on the
-                // CURRENTLY ACTIVE unit. shader.bind() leaves a non-zero unit active when
-                // Sodium/Iris is present, stranding the material texture on unit 1 while Sampler0
-                // samples unit 0 (still the caller's default/body texture) -- hair rendered black.
-                // Same fix as mixin.base.BOBJModelVAOMixinBase.
-                GL30.glActiveTexture(GL30.GL_TEXTURE0);
-                BBSModClient.getTextures().bind(texture);
-            }
-            else
-            {
-                GL30.glActiveTexture(GL30.GL_TEXTURE0);
-                GL30.glBindTexture(GL30.GL_TEXTURE_2D, previousTexture);
+                if (texture != null)
+                {
+                    // bindTexture(), not just .bind(): the raw .bind() only calls glBindTexture, which
+                    // bypasses Iris's PBR hook -- Iris applies the _n/_s companion maps as a side effect
+                    // of RenderSystem.setShaderTexture (its onSetShaderTexture mixin), so a material bound
+                    // only through raw GL never gets its _s specular map. This is what makes multi-material
+                    // models match single-texture ones (whose native path goes through bindTexture). Same
+                    // fix as mixin.cml.BOBJModelVAOMixinCML.
+                    BBSModClient.getTextures().bindTexture(texture);
+
+                    // Assert active unit 0 before the raw bind: setShaderTexture only records the
+                    // tracked value, so the actual GL bind is Texture.bind() -> glBindTexture on the
+                    // CURRENTLY ACTIVE unit. shader.bind() leaves a non-zero unit active when
+                    // Sodium/Iris is present, stranding the material texture on unit 1 while Sampler0
+                    // samples unit 0 (still the caller's default/body texture) -- hair rendered black.
+                    // Same fix as mixin.base.BOBJModelVAOMixinBase.
+                    GL30.glActiveTexture(GL30.GL_TEXTURE0);
+                    BBSModClient.getTextures().bind(texture);
+                }
+                else
+                {
+                    GL30.glActiveTexture(GL30.GL_TEXTURE0);
+                    GL30.glBindTexture(GL30.GL_TEXTURE_2D, previousTexture);
+                }
+
+                MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
             }
 
-            MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+            GL30.glDisableVertexAttribArray(Attributes.POSITION);
+            GL30.glDisableVertexAttribArray(Attributes.TEXTURE_UV);
+            GL30.glDisableVertexAttribArray(Attributes.NORMAL);
+
+            if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
+            if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+
+            shader.unbind();
         }
-
-        GL30.glDisableVertexAttribArray(Attributes.POSITION);
-        GL30.glDisableVertexAttribArray(Attributes.TEXTURE_UV);
-        GL30.glDisableVertexAttribArray(Attributes.NORMAL);
-
-        if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
-        if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
-
-        shader.unbind();
-
-        GL30.glBindVertexArray(currentVAO);
-        GL30.glBindBuffer(GL30.GL_ELEMENT_ARRAY_BUFFER, currentElementArrayBuffer);
+        finally
+        {
+            GL30.glBindVertexArray(currentVAO);
+            GL30.glBindBuffer(GL30.GL_ELEMENT_ARRAY_BUFFER, currentElementArrayBuffer);
+            TextureBindRestore.restore(textureSnapshot);
+        }
     }
 }

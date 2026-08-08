@@ -3,6 +3,7 @@ package glaxium.snb.mixin.base;
 import glaxium.snb.mixin.CubicCubeRendererAccessor;
 import glaxium.snb.render.IModelInstanceMaterialVaos;
 import glaxium.snb.render.MaterialTextureDelegate;
+import glaxium.snb.render.TextureBindRestore;
 
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.cubic.IModel;
@@ -103,16 +104,25 @@ public abstract class CubicVAORendererMixinBase
         }
 
         /* One draw per material, each with its material's texture bound. */
-        for (Map.Entry<String, ModelVAO> entry : groupVaos.entrySet())
+        TextureBindRestore.Snapshot textureSnapshot = TextureBindRestore.capture();
+
+        try
         {
-            Link resolved = MaterialTextureDelegate.resolveMaterialTexture(iModel, entry.getKey());
-
-            if (resolved != null)
+            for (Map.Entry<String, ModelVAO> entry : groupVaos.entrySet())
             {
-                BBSModClient.getTextures().bindTexture(resolved);
-            }
+                Link resolved = MaterialTextureDelegate.resolveMaterialTexture(iModel, entry.getKey());
 
-            ModelVAORenderer.render(this.program, entry.getValue(), stack, r, g, b, a, light, accessor.bbsFbx$getOverlay());
+                if (resolved != null)
+                {
+                    BBSModClient.getTextures().bindTexture(resolved);
+                }
+
+                ModelVAORenderer.render(this.program, entry.getValue(), stack, r, g, b, a, light, accessor.bbsFbx$getOverlay());
+            }
+        }
+        finally
+        {
+            TextureBindRestore.restore(textureSnapshot);
         }
 
         cir.cancel();

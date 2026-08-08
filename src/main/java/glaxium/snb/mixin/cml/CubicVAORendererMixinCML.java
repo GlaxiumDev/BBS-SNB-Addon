@@ -6,6 +6,7 @@ import glaxium.snb.render.CurrentMaterialPbrOverrides;
 import glaxium.snb.render.IModelInstanceMaterialVaos;
 import glaxium.snb.render.MaterialPbrIntensity;
 import glaxium.snb.render.MaterialTextureDelegate;
+import glaxium.snb.render.TextureBindRestore;
 
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.cubic.IModel;
@@ -177,54 +178,62 @@ public abstract class CubicVAORendererMixinCML
         }
 
         /* One draw per material, each with its material's texture bound. */
-        for (Map.Entry<String, ModelVAO> entry : groupVaos.entrySet())
+        TextureBindRestore.Snapshot textureSnapshot = TextureBindRestore.capture();
+
+        try
         {
-            String material = entry.getKey();
-            Link resolved = MaterialTextureDelegate.resolveMaterialTexture(iModel, material);
-
-            /* Stage this material's own PBR intensity (CML film-editor channel) so the bindTexture
-             * below snapshots it against the texture for Iris' _n/_s loaders, mirroring the BOBJ
-             * multi-material loop. With no override the whole-model intensity (staged by the native
-             * ModelFormRenderer around this render) stays active. */
-            MaterialPbrIntensity pbr = CurrentMaterialPbrOverrides.current().get(material);
-
-            if (pbr != null)
+            for (Map.Entry<String, ModelVAO> entry : groupVaos.entrySet())
             {
-                MaterialPbrIntensity base = CurrentMaterialPbrOverrides.currentBase();
+                String material = entry.getKey();
+                Link resolved = MaterialTextureDelegate.resolveMaterialTexture(iModel, material);
 
-                CMLRenderCompat.stagePbrIntensity(
-                        pbr.normal != null ? pbr.normal : (base.normal != null ? base.normal : 1.0F),
-                        pbr.specular != null ? pbr.specular : (base.specular != null ? base.specular : 1.0F));
-            }
+                /* Stage this material's own PBR intensity (CML film-editor channel) so the bindTexture
+                 * below snapshots it against the texture for Iris' _n/_s loaders, mirroring the BOBJ
+                 * multi-material loop. With no override the whole-model intensity (staged by the native
+                 * ModelFormRenderer around this render) stays active. */
+                MaterialPbrIntensity pbr = CurrentMaterialPbrOverrides.current().get(material);
 
-            if (resolved != null)
-            {
-                BBSModClient.getTextures().bindTexture(resolved);
-            }
+                if (pbr != null)
+                {
+                    MaterialPbrIntensity base = CurrentMaterialPbrOverrides.currentBase();
 
-            CMLRenderCompat.setGroupPaint(effectivePaintR, effectivePaintG, effectivePaintB, effectivePaintStrength);
-            CMLRenderCompat.setGroupPaintEffectTransform(CMLRenderCompat.paintColorTransform(group));
-            CMLRenderCompat.setGroupGlowing(effectiveGlowR, effectiveGlowG, effectiveGlowB, effectiveGlowStrength);
-            CMLRenderCompat.setGroupGlowEffectTransform(CMLRenderCompat.glowingColorTransform(group));
-            CMLRenderCompat.setGroupFormColorGrade(group.color);
-            CMLRenderCompat.setGroupColorEffectTransform(CMLRenderCompat.colorTransform(group.color));
-            CMLRenderCompat.setGroupFormColorTint(group.color);
+                    CMLRenderCompat.stagePbrIntensity(
+                            pbr.normal != null ? pbr.normal : (base.normal != null ? base.normal : 1.0F),
+                            pbr.specular != null ? pbr.specular : (base.specular != null ? base.specular : 1.0F));
+                }
 
-            ModelVAORenderer.render(this.program, entry.getValue(), stack, r, g, b, a, light, accessor.bbsFbx$getOverlay());
+                if (resolved != null)
+                {
+                    BBSModClient.getTextures().bindTexture(resolved);
+                }
 
-            /* Restore the whole-model intensity so the next material (or a non-overridden one) never
-             * inherits this override. */
-            if (pbr != null)
-            {
-                MaterialPbrIntensity base = CurrentMaterialPbrOverrides.currentBase();
+                CMLRenderCompat.setGroupPaint(effectivePaintR, effectivePaintG, effectivePaintB, effectivePaintStrength);
+                CMLRenderCompat.setGroupPaintEffectTransform(CMLRenderCompat.paintColorTransform(group));
+                CMLRenderCompat.setGroupGlowing(effectiveGlowR, effectiveGlowG, effectiveGlowB, effectiveGlowStrength);
+                CMLRenderCompat.setGroupGlowEffectTransform(CMLRenderCompat.glowingColorTransform(group));
+                CMLRenderCompat.setGroupFormColorGrade(group.color);
+                CMLRenderCompat.setGroupColorEffectTransform(CMLRenderCompat.colorTransform(group.color));
+                CMLRenderCompat.setGroupFormColorTint(group.color);
 
-                CMLRenderCompat.stagePbrIntensity(
-                        base.normal != null ? base.normal : 1.0F,
-                        base.specular != null ? base.specular : 1.0F);
+                ModelVAORenderer.render(this.program, entry.getValue(), stack, r, g, b, a, light, accessor.bbsFbx$getOverlay());
+
+                /* Restore the whole-model intensity so the next material (or a non-overridden one) never
+                 * inherits this override. */
+                if (pbr != null)
+                {
+                    MaterialPbrIntensity base = CurrentMaterialPbrOverrides.currentBase();
+
+                    CMLRenderCompat.stagePbrIntensity(
+                            base.normal != null ? base.normal : 1.0F,
+                            base.specular != null ? base.specular : 1.0F);
+                }
             }
         }
-
-        CMLRenderCompat.clearTextureBlend();
+        finally
+        {
+            TextureBindRestore.restore(textureSnapshot);
+            CMLRenderCompat.clearTextureBlend();
+        }
 
         cir.cancel();
     }

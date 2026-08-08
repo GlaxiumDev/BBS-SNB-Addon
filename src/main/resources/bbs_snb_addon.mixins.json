@@ -5,6 +5,7 @@
   "plugin": "glaxium.snb.BBSFbxMixinPlugin",
   "client": [
     "ModelManagerMixin",
+    "ModelLoaderDedupeMixin",
     "ImportersMixin",
     "BOBJModelMixin",
     "BOBJModelVAOMixin",

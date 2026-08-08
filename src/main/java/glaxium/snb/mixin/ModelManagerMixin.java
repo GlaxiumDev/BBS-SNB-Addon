@@ -3,8 +3,10 @@ package glaxium.snb.mixin;
 import glaxium.snb.BBSFbxAddon;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
+import glaxium.snb.model.fbx.loaders.ModelLoadInFlight;
 import glaxium.snb.model.fbx.loaders.SceneFormat;
 
+import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.model.ModelManager;
 import mchorse.bbs_mod.resources.Link;
 
@@ -50,6 +52,18 @@ public class ModelManagerMixin
     private void bbsFbx$fbxIsRelodable(Link link, CallbackInfoReturnable<Boolean> info)
     {
         String path = link.path;
+        if (path == null)
+        {
+            return;
+        }
+
+        /* Sidecar writes from texture extract / material folders must not
+         * invalidate the live model (that re-queues Assimp every frame). */
+        if (path.contains("/textures/") || path.endsWith("bbs_fbx_materials.txt"))
+        {
+            info.setReturnValue(false);
+            return;
+        }
 
         if (path.startsWith(ModelManager.MODELS_PREFIX)
                 && !path.contains("/animations/")
@@ -58,5 +72,16 @@ public class ModelManagerMixin
         {
             info.setReturnValue(true);
         }
+    }
+
+    /**
+     * Always clear the in-flight mark when {@code loadModel} returns so a
+     * cancelled duplicate {@code add} can run again after a real failure, and
+     * so a successful load does not permanently block reloads of that id.
+     */
+    @Inject(method = "loadModel", at = @At("RETURN"), remap = false)
+    private void bbsFbx$endInFlight(String id, CallbackInfoReturnable<ModelInstance> info)
+    {
+        ModelLoadInFlight.end(id);
     }
 }
