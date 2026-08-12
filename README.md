@@ -12,12 +12,11 @@ BBS Addon Engine required.
 
 ## Features
 
-- Geometry + skeletal animation, converted from FBX, glTF and GLB via Assimp
-  (`org.lwjgl:lwjgl-assimp`) into BBS's native cubic/BOBJ model format. All
-  formats share one loader and one pipeline; only the import call differs
-  (UV origin, unit scale, external-file resolution -- see
-  `model/fbx/loaders/SceneFormat`). Separate glTF exports (`.gltf` + `.bin` +
-  loose images) are imported with their referenced files alongside them
+- Geometry + skeletal animation, converted from binary FBX 7.x, glTF 2.0 and
+  GLB by the addon's pure-Java readers into BBS's cubic/BOBJ model format.
+  No Assimp binaries or platform-specific native libraries are bundled.
+  Separate glTF exports (`.gltf` + `.bin` + loose images) are imported with
+  their referenced files alongside them
 - Per-material textures -- BBS's own single-mesh renderers only support one
   texture (or per-bone overrides) per model; this addon splits multi-material
   FBX models into per-material draw calls so each material renders with its
@@ -26,6 +25,16 @@ BBS Addon Engine required.
 - Shape keys, blended per-vertex on the same per-material draw path
 - Armature/skeletal animation baking from FBX's node hierarchy into BBS's
   bone format
+- Old Emoticons-style skinned armor for `emoticons/steve`, `alex`, and the
+  Steve/Alex Bend models (`steve_simple`/`alex_simple` internally). Armor is supplied by independent
+  `armor.bobj` sidecars, rebound to the untouched model armature by bone
+  name, hidden per empty equipment slot, and textured from the equipped
+  vanilla/modded armor material. BBS Bend is the old Emoticons Simple+ body
+  and uses its matching `props_simple.bobj` armor shell. An armor-specific
+  geometric hinge applies the same sharp 90-degree elbow, knee, and waist bend
+  as the body without relying on incompatible player-skin UV ranges. Alex has
+  separately generated narrow sleeves aligned to the slim arm centers.
+  Dyeable leather armor receives its item color.
 
 ## Supported forks
 
