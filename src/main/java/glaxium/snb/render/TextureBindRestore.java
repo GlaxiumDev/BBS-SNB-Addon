@@ -15,18 +15,18 @@ import org.lwjgl.opengl.GL30;
  */
 public final class TextureBindRestore
 {
-    private static final ThreadLocal<SnapshotPool> POOL = ThreadLocal.withInitial(SnapshotPool::new);
-
     public static final class Snapshot
     {
-        private int shaderTexture0;
-        private int activeUnit;
-        private int boundOnUnit0;
-        private SnapshotPool owner;
-        private int slot;
+        private final int shaderTexture0;
+        private final int activeUnit;
+        private final int boundOnUnit0;
 
-        private Snapshot()
-        {}
+        private Snapshot(int shaderTexture0, int activeUnit, int boundOnUnit0)
+        {
+            this.shaderTexture0 = shaderTexture0;
+            this.activeUnit = activeUnit;
+            this.boundOnUnit0 = boundOnUnit0;
+        }
 
         /** Minecraft/Iris-tracked Sampler0 id at capture time. */
         public int shaderTexture0()
@@ -41,8 +41,6 @@ public final class TextureBindRestore
 
     public static Snapshot capture()
     {
-        SnapshotPool pool = POOL.get();
-        Snapshot snapshot = pool.acquire();
         int shaderTexture0 = RenderSystem.getShaderTexture(0);
         int activeUnit = GL11.glGetInteger(GL13.GL_ACTIVE_TEXTURE);
 
@@ -50,11 +48,7 @@ public final class TextureBindRestore
         int boundOnUnit0 = GL11.glGetInteger(GL11.GL_TEXTURE_BINDING_2D);
         GL30.glActiveTexture(activeUnit);
 
-        snapshot.shaderTexture0 = shaderTexture0;
-        snapshot.activeUnit = activeUnit;
-        snapshot.boundOnUnit0 = boundOnUnit0;
-
-        return snapshot;
+        return new Snapshot(shaderTexture0, activeUnit, boundOnUnit0);
     }
 
     public static void restore(Snapshot snapshot)
@@ -68,47 +62,5 @@ public final class TextureBindRestore
         RenderSystem.setShaderTexture(0, snapshot.shaderTexture0);
         GL30.glBindTexture(GL30.GL_TEXTURE_2D, snapshot.boundOnUnit0);
         GL30.glActiveTexture(snapshot.activeUnit);
-
-        snapshot.owner.release(snapshot);
-    }
-
-    /** Small nested-safe pool; normal rendering only ever uses slot zero. */
-    private static final class SnapshotPool
-    {
-        private Snapshot[] snapshots = new Snapshot[4];
-        private int depth;
-
-        private Snapshot acquire()
-        {
-            if (this.depth == this.snapshots.length)
-            {
-                Snapshot[] grown = new Snapshot[this.snapshots.length * 2];
-
-                System.arraycopy(this.snapshots, 0, grown, 0, this.snapshots.length);
-                this.snapshots = grown;
-            }
-
-            int slot = this.depth++;
-            Snapshot snapshot = this.snapshots[slot];
-
-            if (snapshot == null)
-            {
-                snapshot = new Snapshot();
-                this.snapshots[slot] = snapshot;
-            }
-
-            snapshot.owner = this;
-            snapshot.slot = slot;
-
-            return snapshot;
-        }
-
-        private void release(Snapshot snapshot)
-        {
-            if (snapshot.owner == this && snapshot.slot == this.depth - 1)
-            {
-                this.depth--;
-            }
-        }
     }
 }

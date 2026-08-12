@@ -14,15 +14,17 @@ import mchorse.bbs_mod.cubic.render.CubicCubeRenderer;
 import mchorse.bbs_mod.cubic.render.ICubicRenderer;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAO;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAOData;
+import mchorse.bbs_mod.utils.CollectionUtils;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.util.math.MatrixStack;
 import org.joml.Vector2f;
 import org.joml.Vector3f;
 import org.joml.Vector4f;
 
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -117,9 +119,9 @@ public class CubicVAOBucketingBuilder implements ICubicRenderer
                 continue;
             }
 
-            float[] v = bucket.vertices.toArray();
-            float[] n = bucket.normals.toArray();
-            float[] u = bucket.uvs.toArray();
+            float[] v = CollectionUtils.toArray(bucket.vertices);
+            float[] n = CollectionUtils.toArray(bucket.normals);
+            float[] u = CollectionUtils.toArray(bucket.uvs);
             float[] t = BBSRendering.calculateTangents(v, n, u);
 
             groupVaos.put(entry.getKey(), new ModelVAO(new ModelVAOData(v, n, t, u)));
@@ -227,35 +229,8 @@ public class CubicVAOBucketingBuilder implements ICubicRenderer
     /** Accumulated triangle data for a single material within a group. */
     private static class MaterialBucket
     {
-        private final FloatBuilder vertices = new FloatBuilder();
-        private final FloatBuilder normals = new FloatBuilder();
-        private final FloatBuilder uvs = new FloatBuilder();
-    }
-
-    /** Primitive accumulator: avoids boxing every OBJ component as Float. */
-    private static class FloatBuilder
-    {
-        private float[] values = new float[1_024];
-        private int size;
-
-        private void add(float value)
-        {
-            if (this.size == this.values.length)
-            {
-                this.values = Arrays.copyOf(this.values, this.values.length * 2);
-            }
-
-            this.values[this.size++] = value;
-        }
-
-        private boolean isEmpty()
-        {
-            return this.size == 0;
-        }
-
-        private float[] toArray()
-        {
-            return Arrays.copyOf(this.values, this.size);
-        }
+        private final List<Float> vertices = new ArrayList<>();
+        private final List<Float> normals = new ArrayList<>();
+        private final List<Float> uvs = new ArrayList<>();
     }
 }
