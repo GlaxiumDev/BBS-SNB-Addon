@@ -17,17 +17,17 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * <b>Parked — not registered in {@code bbs_snb_addon.mixins.json}.</b>
- * Parallel Assimp loads (4–8 workers) plus {@code ModelManager.reload()}
+ * Parallel model loads (4–8 workers) plus {@code ModelManager.reload()}
  * clearing the shared {@code HashMap} mid-load froze the whole desktop on
  * Linux under RAM pressure. Stock BBS's single loader thread is used again
- * until this can be made safe (serialize Assimp, sync reload against the
- * model map, and cap concurrency hard).
+ * until reload can be synchronized against the model map and concurrency can
+ * be capped safely.
  *
  * <p>Replaces Base/FS's {@code ModelLoader} -- one dedicated {@code "BBS model
  * loader"} thread draining a queue -- with a small worker pool, so opening a
  * morph category with many distinct models doesn't load them strictly one
  * after another (the visible symptom: models "pop in" one-by-one, each
- * paying the full Assimp-parse-plus-convert cost before the next even
+ * paying the full parse-plus-convert cost before the next even
  * starts).</p>
  *
  * <p>Fork-agnostic across Base and FS only: {@code ModelLoader.java} is

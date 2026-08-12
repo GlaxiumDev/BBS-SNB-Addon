@@ -17,7 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Registers the Assimp model loader with {@link ModelManager} and teaches it
+ * Registers the FBX/glTF model loader with {@link ModelManager} and teaches it
  * which paths under {@code models/} are importable model files ({@link
  * SceneFormat}: {@code .fbx}, {@code .gltf}, {@code .glb}) that should trigger
  * a reload watch.
@@ -53,7 +53,7 @@ public class ModelManagerMixin
         }
 
         /* Sidecar writes from texture extract / material folders must not
-         * invalidate the live model (that re-queues Assimp every frame). */
+         * invalidate the live model (that re-queues parsing every frame). */
         if (path.contains("/textures/") || path.endsWith("bbs_fbx_materials.txt"))
         {
             info.setReturnValue(false);

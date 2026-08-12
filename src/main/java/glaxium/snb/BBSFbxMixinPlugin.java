@@ -17,8 +17,8 @@ import java.util.Set;
  * signature (see the doc comments on those classes). {@code mixin.basecml}
  * and {@code mixin.basefs} gate a mixin to two of the three forks. The
  * {@code basefs} parallel-loader mixins exist in source but are currently
- * <b>not listed</b> in {@code bbs_snb_addon.mixins.json} (concurrent Assimp
- * imports froze Linux under reload/login load). Everything else targets
+ * <b>not listed</b> in {@code bbs_snb_addon.mixins.json} (the host model map
+ * is not safe to mutate during a concurrent reload). Everything else targets
  * classes identical across all three forks and is left ungated.</p>
  *
  * <p>Runs during mixin bootstrap, so it must never touch an actual BBS class

@@ -12,8 +12,8 @@ import java.util.Map;
 /**
  * <b>Parked — not registered in {@code bbs_snb_addon.mixins.json}.</b>
  * Only needed alongside {@link ModelLoaderMixinBaseFS}; that parallel loader
- * is disabled because concurrent Assimp + unsynced {@code reload()} froze
- * Linux desktops. See that class's doc for the full reason.
+ * is disabled because concurrent model loads plus an unsynchronized
+ * {@code reload()} froze Linux desktops. See that class's doc for details.
  *
  * <p>Makes {@link ModelManager#models} safe to read/write from multiple threads
  * at once, which {@link ModelLoaderMixinBaseFS}'s worker pool needs.</p>

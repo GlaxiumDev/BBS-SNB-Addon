@@ -1,6 +1,8 @@
 package glaxium.snb.model.fbx.convert;
 
 import glaxium.snb.model.fbx.FBXMesh;
+import glaxium.snb.model.fbx.FBXShapeKeyNames;
+import glaxium.snb.model.fbx.scene.JavaScene;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJMesh;
@@ -14,22 +16,11 @@ import org.joml.Quaternionf;
 import org.joml.Vector2d;
 import org.joml.Vector3f;
 
-import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AIMaterial;
-import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.AIString;
-import org.lwjgl.assimp.AIVector3D;
-import org.lwjgl.assimp.AIVertexWeight;
-import org.lwjgl.assimp.Assimp;
-import org.lwjgl.assimp.AIColor4D;
-
-import java.nio.IntBuffer;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Converts a single Assimp mesh into a {@link BOBJMesh} (as an
+ * Converts a single scene mesh into a {@link BOBJMesh} (as an
  * {@link FBXMesh}) — vertices, normals, UVs, faces, bone weights, and the
  * diffuse material/texture name.
  */
@@ -42,9 +33,9 @@ public final class FBXMeshBuilder
      * is applied, and every vertex is weighted to the object's own bone
      * ({@code objectBoneName}) so it pivots at its Blender origin.
      */
-    public static void buildMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName)
+    public static void buildMesh(JavaScene scene, JavaScene.Mesh sourceMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName)
     {
-        buildMesh(scene, aiMesh, meshIndex, vertices, textures, normals, meshes, armature, scaleFactor, rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName, false);
+        buildMesh(scene, sourceMesh, meshIndex, vertices, textures, normals, meshes, armature, scaleFactor, rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName, false);
     }
 
     /**
@@ -55,14 +46,14 @@ public final class FBXMeshBuilder
      *                        rigs whose mesh carries a non-identity rotation
      *                        (e.g. Verity GLB: ~180° yaw + tilt).
      */
-    public static void buildMesh(AIScene scene, AIMesh aiMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName, boolean ibmInSceneSpace)
+    public static void buildMesh(JavaScene scene, JavaScene.Mesh sourceMesh, int meshIndex, List<Vertex> vertices, List<Vector2d> textures, List<Vector3f> normals, List<BOBJMesh> meshes, BOBJArmature armature, float scaleFactor, Matrix4f rootCorrection, float offsetX, float offsetY, float offsetZ, Map<Integer, Matrix4f> meshTransforms, String objectBoneName, boolean ibmInSceneSpace)
     {
-        FBXMesh mesh = new FBXMesh(aiMesh.mName().dataString());
+        FBXMesh mesh = new FBXMesh(sourceMesh.name);
         mesh.armatureName = armature.name;
         mesh.armature = armature;
 
         Matrix4f meshTransform = meshTransforms.get(meshIndex);
-        boolean skinned = aiMesh.mNumBones() > 0;
+        boolean skinned = !sourceMesh.bones.isEmpty();
         boolean applyNodeTransform = !skinned && meshTransform != null;
         Matrix4f meshRotationOnly = null;
         /* Mesh-local IBMs (Blender FBX): lift verts by the mesh rotation so
@@ -81,12 +72,9 @@ public final class FBXMeshBuilder
 
         Vector3f pos = new Vector3f();
 
-        AIVector3D.Buffer aiVertices = aiMesh.mVertices();
-        while (aiVertices.remaining() > 0)
+        for (Vector3f source : sourceMesh.vertices)
         {
-            AIVector3D aiVertex = aiVertices.get();
-
-            pos.set(aiVertex.x(), aiVertex.y(), aiVertex.z());
+            pos.set(source);
             if (applyNodeTransform)
             {
                 meshTransform.transformPosition(pos);
@@ -106,13 +94,11 @@ public final class FBXMeshBuilder
             vertices.add(new Vertex(pos.x, pos.y, pos.z));
         }
 
-        AIVector3D.Buffer aiNormals = aiMesh.mNormals();
-        if (aiNormals != null)
+        if (sourceMesh.normals.length > 0)
         {
-            while (aiNormals.remaining() > 0)
+            for (Vector3f source : sourceMesh.normals)
             {
-                AIVector3D aiNormal = aiNormals.get();
-                Vector3f norm = new Vector3f(aiNormal.x(), aiNormal.y(), aiNormal.z());
+                Vector3f norm = new Vector3f(source);
                 if (applyNodeTransform)
                 {
                     meshTransform.transformDirection(norm);
@@ -130,52 +116,42 @@ public final class FBXMeshBuilder
         }
         else
         {
-            int count = aiMesh.mNumVertices();
+            int count = sourceMesh.vertices.length;
             for (int i = 0; i < count; i++)
             {
                 normals.add(new Vector3f(0, 1, 0));
             }
         }
 
-        AIVector3D.Buffer aiTextureCoords = aiMesh.mTextureCoords(0);
-        if (aiTextureCoords != null)
+        if (sourceMesh.texCoords.length > 0)
         {
-            while (aiTextureCoords.remaining() > 0)
+            for (org.joml.Vector2f uv : sourceMesh.texCoords)
             {
-                AIVector3D aiTexCoord = aiTextureCoords.get();
-                textures.add(new Vector2d(aiTexCoord.x(), aiTexCoord.y()));
+                textures.add(new Vector2d(uv.x, uv.y));
             }
         }
         else
         {
-            int count = aiMesh.mNumVertices();
+            int count = sourceMesh.vertices.length;
             for (int i = 0; i < count; i++)
             {
                 textures.add(new Vector2d(0, 0));
             }
         }
 
-        int numAnimMeshes = aiMesh.mNumAnimMeshes();
-        if (numAnimMeshes > 0 && aiMesh.mAnimMeshes() != null)
+        if (!sourceMesh.shapeKeys.isEmpty())
         {
             mesh.shapeKeyVertices = new java.util.HashMap<>();
             mesh.shapeKeyNormals = new java.util.HashMap<>();
             mesh.vertexBaseIndex = vertexBaseIndex;
             mesh.normalBaseIndex = normalBaseIndex;
 
-            String meshName = glaxium.snb.model.fbx.FBXShapeKeyNames.safeName(aiMesh.mName().dataString());
-            org.lwjgl.PointerBuffer animMeshes = aiMesh.mAnimMeshes();
+            String meshName = FBXShapeKeyNames.safeName(sourceMesh.name);
 
-            for (int animIndex = 0; animIndex < numAnimMeshes; animIndex++)
+            for (int animIndex = 0; animIndex < sourceMesh.shapeKeys.size(); animIndex++)
             {
-                org.lwjgl.assimp.AIAnimMesh animMesh = org.lwjgl.assimp.AIAnimMesh.createSafe(animMeshes.get(animIndex));
-
-                if (animMesh == null)
-                {
-                    continue;
-                }
-
-                String shapeKeyName = glaxium.snb.model.fbx.FBXShapeKeyNames.buildShapeKeyName(animMesh, meshName, animIndex);
+                JavaScene.ShapeKey shapeKey = sourceMesh.shapeKeys.get(animIndex);
+                String shapeKeyName = FBXShapeKeyNames.buildShapeKeyName(shapeKey, meshName, animIndex);
 
                 if (shapeKeyName.isBlank())
                 {
@@ -183,14 +159,12 @@ public final class FBXMeshBuilder
                 }
 
                 java.util.List<Vector3f> shapeVertices = new java.util.ArrayList<>();
-                org.lwjgl.assimp.AIVector3D.Buffer aiAnimVertices = animMesh.mVertices();
-                if (aiAnimVertices != null)
+                if (shapeKey.vertices.length > 0)
                 {
                     Vector3f animPos = new Vector3f();
-                    while (aiAnimVertices.remaining() > 0)
+                    for (Vector3f source : shapeKey.vertices)
                     {
-                        org.lwjgl.assimp.AIVector3D aiAnimVertex = aiAnimVertices.get();
-                        animPos.set(aiAnimVertex.x(), aiAnimVertex.y(), aiAnimVertex.z());
+                        animPos.set(source);
 
                         if (applyNodeTransform)
                         {
@@ -214,13 +188,11 @@ public final class FBXMeshBuilder
                 mesh.shapeKeyVertices.put(shapeKeyName, shapeVertices);
 
                 java.util.List<Vector3f> shapeNormals = new java.util.ArrayList<>();
-                org.lwjgl.assimp.AIVector3D.Buffer aiAnimNormals = animMesh.mNormals();
-                if (aiAnimNormals != null)
+                if (shapeKey.normals.length > 0)
                 {
-                    while (aiAnimNormals.remaining() > 0)
+                    for (Vector3f source : shapeKey.normals)
                     {
-                        org.lwjgl.assimp.AIVector3D aiAnimNormal = aiAnimNormals.get();
-                        Vector3f animNorm = new Vector3f(aiAnimNormal.x(), aiAnimNormal.y(), aiAnimNormal.z());
+                        Vector3f animNorm = new Vector3f(source);
 
                         if (applyNodeTransform)
                         {
@@ -239,7 +211,7 @@ public final class FBXMeshBuilder
                 }
                 else
                 {
-                    int count = aiMesh.mNumVertices();
+                    int count = sourceMesh.vertices.length;
                     for (int i = 0; i < count; i++)
                     {
                         shapeNormals.add(new Vector3f(0, 1, 0));
@@ -250,16 +222,14 @@ public final class FBXMeshBuilder
         }
 
 
-        int numFaces = aiMesh.mNumFaces();
-        for (int i = 0; i < numFaces; i++)
+        for (int[] faceIndices : sourceMesh.faces)
         {
-            IntBuffer faceIndices = aiMesh.mFaces().get(i).mIndices();
-            if (faceIndices.remaining() == 3)
+            if (faceIndices.length == 3)
             {
                 Face face = new Face();
                 for (int j = 0; j < 3; j++)
                 {
-                    int index = faceIndices.get(j);
+                    int index = faceIndices[j];
                     IndexGroup group = new IndexGroup();
                     group.idxPos = vertexBaseIndex + index;
                     group.idxVecNormal = normalBaseIndex + index;
@@ -272,18 +242,14 @@ public final class FBXMeshBuilder
 
         if (skinned)
         {
-            int numBones = aiMesh.mNumBones();
-            for (int i = 0; i < numBones; i++)
+            for (JavaScene.Bone bone : sourceMesh.bones)
             {
-                AIBone aiBone = AIBone.create(aiMesh.mBones().get(i));
-                String boneName = aiBone.mName().dataString();
+                String boneName = bone.name;
 
-                AIVertexWeight.Buffer aiWeights = aiBone.mWeights();
-                while (aiWeights.remaining() > 0)
+                for (JavaScene.VertexWeight sourceWeight : bone.weights)
                 {
-                    AIVertexWeight aiWeight = aiWeights.get();
-                    int vertexId = aiWeight.mVertexId();
-                    float weight = aiWeight.mWeight();
+                    int vertexId = sourceWeight.vertexId();
+                    float weight = sourceWeight.weight();
 
                     if (vertexId + vertexBaseIndex < vertices.size())
                     {
@@ -300,27 +266,17 @@ public final class FBXMeshBuilder
             }
         }
 
-        int materialIndex = aiMesh.mMaterialIndex();
-        if (materialIndex >= 0 && materialIndex < scene.mNumMaterials())
+        int materialIndex = sourceMesh.materialIndex;
+        if (materialIndex >= 0 && materialIndex < scene.materials.size())
         {
-            AIMaterial material = AIMaterial.create(scene.mMaterials().get(materialIndex));
-
-            AIString nameStr = AIString.calloc();
-            if (Assimp.aiGetMaterialString(material, Assimp.AI_MATKEY_NAME, 0, 0, nameStr) == Assimp.aiReturn_SUCCESS)
+            JavaScene.Material material = scene.materials.get(materialIndex);
+            if (material.name != null && !material.name.isEmpty())
             {
-                String materialName = nameStr.dataString();
-                if (!materialName.isEmpty())
-                {
-                    mesh.name = materialName;
-                }
+                mesh.name = material.name;
             }
-            nameStr.free();
-
-            AIString path = AIString.calloc();
-
-            if (Assimp.aiGetMaterialTexture(material, Assimp.aiTextureType_DIFFUSE, 0, path, (IntBuffer) null, null, null, null, null, null) == Assimp.aiReturn_SUCCESS)
+            if (material.texturePath != null && !material.texturePath.isEmpty())
             {
-                String texturePath = path.dataString();
+                String texturePath = material.texturePath;
 
                 if (!texturePath.isEmpty())
                 {
@@ -336,24 +292,12 @@ public final class FBXMeshBuilder
                 }
             }
 
-            path.free();
-
             /* No image texture on this material: capture its flat diffuse/base
              * color so the loader can hand BBS a synthetic color texture Link
              * (LinkUtils.color) instead of baking a PNG to disk. */
-            if (mesh.texture == null)
+            if (mesh.texture == null && material.color != null)
             {
-                AIColor4D color = AIColor4D.calloc();
-                int status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_COLOR_DIFFUSE, Assimp.aiTextureType_NONE, 0, color);
-                if (status != Assimp.aiReturn_SUCCESS)
-                {
-                    status = Assimp.aiGetMaterialColor(material, Assimp.AI_MATKEY_BASE_COLOR, Assimp.aiTextureType_NONE, 0, color);
-                }
-                if (status == Assimp.aiReturn_SUCCESS)
-                {
-                    mesh.color = new float[] { color.r(), color.g(), color.b() };
-                }
-                color.free();
+                mesh.color = material.color.clone();
             }
         }
 

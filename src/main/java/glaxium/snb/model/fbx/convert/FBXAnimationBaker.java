@@ -1,5 +1,6 @@
 package glaxium.snb.model.fbx.convert;
 
+import glaxium.snb.model.fbx.scene.JavaScene;
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJBone;
@@ -11,19 +12,10 @@ import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
-import org.lwjgl.assimp.AIAnimation;
-import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AINodeAnim;
-import org.lwjgl.assimp.AIQuatKey;
-import org.lwjgl.assimp.AIQuaternion;
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.AIVector3D;
-import org.lwjgl.assimp.AIVectorKey;
-
 import java.util.*;
 
 /**
- * Bakes every Assimp animation clip in the scene into a {@link BOBJAction},
+ * Bakes every imported animation clip in the scene into a {@link BOBJAction},
  * mirroring the channel layout BOBJ models use (location/rotation/scale per
  * bone group).
  *
@@ -54,15 +46,29 @@ public final class FBXAnimationBaker
      * that actually deform something as skin joints. That parent's bind world
      * is reconstructed from the node tree in the <em>same</em> space the IBMs
      * use (mesh-local or scene -- see {@link FBXArmatureBuilder#ibmInSceneSpace}).
-     * Worlds are orthonormalized before the parent-relative local is computed
-     * so an IBM that still carries a 0.01 scene-scale factor doesn't turn
-     * every animation delta into a 100x scale blow-up.</p>
+     * Ordinary mesh-local worlds are orthonormalized before the parent-relative
+     * local is computed. Split-scale FBXs instead keep inherited scale until
+     * after the local calculation, allowing their 100x mesh / 0.01 IBM pair to
+     * cancel without turning every animation delta into a 100x blow-up.</p>
      */
-    public static Map<String, Matrix4f> computeBindLocals(Map<String, AIBone> skinnedBones, BOBJArmature armature,
+    public static Map<String, Matrix4f> computeBindLocals(Map<String, JavaScene.Bone> skinnedBones, BOBJArmature armature,
             Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms,
             Map<String, Matrix4f> nodeWorldTransforms, boolean ibmInSceneSpace, Map<String, Matrix4f> nodeLocals)
     {
-        /* Scene-space IBMs (glTF): Assimp's node animation keys are in the
+        return computeBindLocals(skinnedBones, armature, skinnedBoneMeshIndex, meshTransforms,
+                nodeWorldTransforms, ibmInSceneSpace, nodeLocals, 1F);
+    }
+
+    /**
+     * Variant that reconstructs split-scale mesh-local FBX binds in the node
+     * animation coordinate system before calculating local deltas.
+     */
+    public static Map<String, Matrix4f> computeBindLocals(Map<String, JavaScene.Bone> skinnedBones, BOBJArmature armature,
+            Map<String, Integer> skinnedBoneMeshIndex, Map<Integer, Matrix4f> meshTransforms,
+            Map<String, Matrix4f> nodeWorldTransforms, boolean ibmInSceneSpace, Map<String, Matrix4f> nodeLocals,
+            float splitMeshAnimationScale)
+    {
+        /* Scene-space IBMs (glTF): node animation keys are in the
          * raw node-local units (often cm under a 0.01 parent), while
          * IBM-derived locals are already in meters. Diffing keys against the
          * IBM local leaves a constant centimetre-sized translation on every
@@ -88,10 +94,16 @@ public final class FBXAnimationBaker
             return bindLocals;
         }
 
-        Map<String, Matrix4f> worldBind = new HashMap<>();
-        for (Map.Entry<String, AIBone> entry : skinnedBones.entrySet())
+        if (splitMeshAnimationScale < 0.5F)
         {
-            Matrix4f offset = FBXMath.toMatrix4f(entry.getValue().mOffsetMatrix());
+            return computeSplitMeshBindLocals(skinnedBones, armature, skinnedBoneMeshIndex,
+                    meshTransforms, nodeWorldTransforms, nodeLocals);
+        }
+
+        Map<String, Matrix4f> worldBind = new HashMap<>();
+        for (Map.Entry<String, JavaScene.Bone> entry : skinnedBones.entrySet())
+        {
+            Matrix4f offset = new Matrix4f(entry.getValue().offsetMatrix);
             worldBind.put(entry.getKey(), orthonormalize(offset.invert()));
         }
 
@@ -117,6 +129,77 @@ public final class FBXAnimationBaker
                     : new Matrix4f(parentWorld).invert().mul(world);
 
             bindLocals.put(bone.name, orthonormalize(local));
+        }
+
+        return bindLocals;
+    }
+
+    /**
+     * Mesh-local IBM^-1 is converted back to scene space with its mesh node,
+     * then made parent-relative while all inherited scales are still present.
+     * This preserves the unit cancellation that a 100x mesh / 0.01 IBM pair
+     * requires and expresses the root bone relative to its (skipped) Armature
+     * node, removing the otherwise constant 90-degree root-axis delta.
+     */
+    private static Map<String, Matrix4f> computeSplitMeshBindLocals(Map<String, JavaScene.Bone> skinnedBones,
+            BOBJArmature armature, Map<String, Integer> skinnedBoneMeshIndex,
+            Map<Integer, Matrix4f> meshTransforms, Map<String, Matrix4f> nodeWorldTransforms,
+            Map<String, Matrix4f> nodeLocals)
+    {
+        Map<String, Matrix4f> sceneBindWorlds = new HashMap<>();
+
+        for (Map.Entry<String, JavaScene.Bone> entry : skinnedBones.entrySet())
+        {
+            Integer meshIndex = skinnedBoneMeshIndex.get(entry.getKey());
+            Matrix4f meshWorld = meshIndex == null ? null : meshTransforms.get(meshIndex);
+
+            if (meshWorld != null)
+            {
+                Matrix4f bindMeshWorld = new Matrix4f(entry.getValue().offsetMatrix).invert();
+                sceneBindWorlds.put(entry.getKey(), new Matrix4f(meshWorld).mul(bindMeshWorld));
+            }
+        }
+
+        Map<String, Matrix4f> bindLocals = new HashMap<>();
+
+        for (BOBJBone bone : armature.orderedBones)
+        {
+            Matrix4f world = sceneBindWorlds.get(bone.name);
+            if (world == null)
+            {
+                continue;
+            }
+
+            Matrix4f parentWorld = null;
+
+            if (!bone.parent.isEmpty())
+            {
+                parentWorld = sceneBindWorlds.get(bone.parent);
+                if (parentWorld == null)
+                {
+                    parentWorld = nodeWorldTransforms.get(bone.parent);
+                }
+            }
+            else
+            {
+                /* buildSkinnedHierarchy intentionally omits synthetic
+                 * Armature/RootNode parents. Recover that parent's world from
+                 * rawWorld = parentWorld * rawLocal so the root bind and keys
+                 * are compared in the same axes. */
+                Matrix4f rawWorld = nodeWorldTransforms.get(bone.name);
+                Matrix4f rawLocal = nodeLocals == null ? null : nodeLocals.get(bone.name);
+                if (rawWorld != null && rawLocal != null)
+                {
+                    parentWorld = new Matrix4f(rawWorld).mul(new Matrix4f(rawLocal).invert());
+                }
+            }
+
+            Matrix4f local = parentWorld == null
+                    ? new Matrix4f(world)
+                    : new Matrix4f(parentWorld).invert().mul(world);
+
+            local.normalize3x3();
+            bindLocals.put(bone.name, local);
         }
 
         return bindLocals;
@@ -157,15 +240,13 @@ public final class FBXAnimationBaker
                 : orthonormalize(new Matrix4f(meshWorld).invert().mul(nodeWorld));
     }
 
-    public static void processAnimations(AIScene scene, Map<String, BOBJAction> actions, BOBJArmature armature, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> bindLocals, float globalScale)
+    public static void processAnimations(JavaScene scene, Map<String, BOBJAction> actions, BOBJArmature armature, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> bindLocals, float globalScale)
     {
-        int numAnimations = scene.mNumAnimations();
-
-        for (int a = 0; a < numAnimations; a++)
+        for (int a = 0; a < scene.animations.size(); a++)
         {
-            AIAnimation aiAnimation = AIAnimation.create(scene.mAnimations().get(a));
+            JavaScene.Animation animation = scene.animations.get(a);
 
-            String name = aiAnimation.mName().dataString();
+            String name = animation.name;
             if (name.isEmpty())
             {
                 name = "animation_" + a;
@@ -180,15 +261,15 @@ public final class FBXAnimationBaker
                 }
             }
 
-            double ticksPerSecond = aiAnimation.mTicksPerSecond();
+            double ticksPerSecond = animation.ticksPerSecond;
             if (ticksPerSecond == 0)
             {
                 ticksPerSecond = 24.0;
             }
 
-            /* Blockbench -> Blender FBX exports emit one AIAnimation PER
+            /* Blockbench -> Blender FBX exports can emit one animation PER
              * ANIMATED NODE per clip (e.g. 40 fragments all named "idle" for
-             * a 40-bone/Empty rig), not one AIAnimation with many channels.
+             * a 40-bone/Empty rig), not one clip with many channels.
              * Reuse the action already in the map for this clip name (if
              * any) and merge this fragment's groups into it — otherwise each
              * new fragment's freshly-`new`'d BOBJAction overwrites the
@@ -201,11 +282,9 @@ public final class FBXAnimationBaker
                 action = new BOBJAction(name);
             }
 
-            int numChannels = aiAnimation.mNumChannels();
-            for (int c = 0; c < numChannels; c++)
+            for (JavaScene.NodeAnimation nodeAnim : animation.channels)
             {
-                AINodeAnim nodeAnim = AINodeAnim.create(aiAnimation.mChannels().get(c));
-                String nodeName = nodeAnim.mNodeName().dataString();
+                String nodeName = nodeAnim.nodeName;
 
                 /* Only animate nodes that ended up as bones in the armature. */
                 if (!armature.bones.containsKey(nodeName))
@@ -235,43 +314,37 @@ public final class FBXAnimationBaker
         }
     }
 
-    private static void processNodeAnimation(AINodeAnim nodeAnim, String nodeName, Matrix4f rest, BOBJAction action, double ticksPerSecond, float globalScale)
+    private static void processNodeAnimation(JavaScene.NodeAnimation nodeAnim, String nodeName, Matrix4f rest, BOBJAction action, double ticksPerSecond, float globalScale)
     {
-        int numPos = nodeAnim.mNumPositionKeys();
-        int numRot = nodeAnim.mNumRotationKeys();
-        int numScale = nodeAnim.mNumScalingKeys();
+        int numPos = nodeAnim.positions.size();
+        int numRot = nodeAnim.rotations.size();
+        int numScale = nodeAnim.scales.size();
 
         double[] posTimes = new double[numPos];
         Vector3f[] posVals = new Vector3f[numPos];
-        AIVectorKey.Buffer posKeys = nodeAnim.mPositionKeys();
         for (int i = 0; i < numPos; i++)
         {
-            AIVectorKey key = posKeys.get(i);
-            posTimes[i] = key.mTime();
-            AIVector3D v = key.mValue();
-            posVals[i] = new Vector3f(v.x(), v.y(), v.z());
+            JavaScene.VectorKey key = nodeAnim.positions.get(i);
+            posTimes[i] = key.time();
+            posVals[i] = new Vector3f(key.value());
         }
 
         double[] rotTimes = new double[numRot];
         Quaternionf[] rotVals = new Quaternionf[numRot];
-        AIQuatKey.Buffer rotKeys = nodeAnim.mRotationKeys();
         for (int i = 0; i < numRot; i++)
         {
-            AIQuatKey key = rotKeys.get(i);
-            rotTimes[i] = key.mTime();
-            AIQuaternion q = key.mValue();
-            rotVals[i] = new Quaternionf(q.x(), q.y(), q.z(), q.w());
+            JavaScene.QuaternionKey key = nodeAnim.rotations.get(i);
+            rotTimes[i] = key.time();
+            rotVals[i] = new Quaternionf(key.value());
         }
 
         double[] scaleTimes = new double[numScale];
         Vector3f[] scaleVals = new Vector3f[numScale];
-        AIVectorKey.Buffer scaleKeys = nodeAnim.mScalingKeys();
         for (int i = 0; i < numScale; i++)
         {
-            AIVectorKey key = scaleKeys.get(i);
-            scaleTimes[i] = key.mTime();
-            AIVector3D v = key.mValue();
-            scaleVals[i] = new Vector3f(v.x(), v.y(), v.z());
+            JavaScene.VectorKey key = nodeAnim.scales.get(i);
+            scaleTimes[i] = key.time();
+            scaleVals[i] = new Vector3f(key.value());
         }
 
         Vector3f restT = new Vector3f();
@@ -296,7 +369,10 @@ public final class FBXAnimationBaker
          * one keyframe per raw track time. Whole frame numbers keep BBS's
          * integer loop length from truncating the clip tail, and the spacing
          * matches what BOBJ clips use while cutting the keyframe count way down. */
-        int lastFrame = (int) Math.ceil(maxTime / ticksPerSecond * FRAMES_PER_SECOND);
+        /* glTF stores time as float32; an exact source frame can arrive as
+         * 384.000015 BBS frames. Treat that sub-frame representation noise as
+         * the intended integer rather than extending the clip by one frame. */
+        int lastFrame = (int) Math.ceil(maxTime / ticksPerSecond * FRAMES_PER_SECOND - 1e-4);
 
         BOBJGroup group = new BOBJGroup(nodeName);
 
@@ -469,7 +545,7 @@ public final class FBXAnimationBaker
 
     /**
      * Finds i such that times[i] <= time < times[i+1], via binary search
-     * (times is sorted ascending - Assimp stores keyframes in time order).
+     * (times is sorted ascending by both Java readers).
      * Caller must ensure times[0] < time < times[n-1]; the boundary cases
      * are handled by the early-returns in interpolateVector/interpolateQuat,
      * so i and i+1 are always valid indices here.

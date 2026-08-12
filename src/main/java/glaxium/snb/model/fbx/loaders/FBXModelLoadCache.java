@@ -8,8 +8,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.CRC32;
 
 /**
- * Skips re-running the native Assimp import and FBX -> BOBJData conversion
- * when a model's .fbx file content hasn't actually changed since it was
+ * Skips re-running the Java scene parse and BOBJData conversion when a
+ * model file's content hasn't actually changed since it was
  * last loaded.
  *
  * <p><b>CRITICAL FIX:</b> This cache is now cleared on every
