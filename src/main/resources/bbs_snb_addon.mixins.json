@@ -12,8 +12,6 @@
     "BOBJModelLoaderOptimizationMixin",
     "BOBJLoaderFastParserMixin",
     "BOBJModelVAOMixin",
-    "BOBJBoneMixin",
-    "CubicModelAnimatorMixin",
     "ModelInstanceArmorMixin",
     "AnimatorMixin",
     "base.ModelInstanceMixinBase",

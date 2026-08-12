@@ -139,9 +139,9 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     /**
      * Worker pool the skin loop splits across when a model is big enough to
      * make dispatch worth it (see {@link #bbsFbx$PARALLEL_THRESHOLD}).
-     * Uses at most four worker threads: this runs on the render thread, which
-     * does its own share of the work as "chunk 0" rather than sitting idle
-     * waiting on the pool. Static + shared across every VAO
+     * {@code count - 1} threads, not {@code count}: this runs on the render
+     * thread, which does its own share of the work as "chunk 0" rather than
+     * sitting idle waiting on the pool. Static + shared across every VAO
      * instance and every model on screen (not one pool per model) since
      * skinning for different instances already happens one {@code updateMesh}
      * call at a time on the render thread -- one small fixed pool reused
@@ -156,14 +156,13 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      * on the render thread, same as before -- OpenGL contexts are
      * thread-bound and none of that is safe to move.</p>
      */
-    private static final int bbsFbx$WORKER_COUNT = Math.max(1,
-            Math.min(4, Runtime.getRuntime().availableProcessors() - 1));
+    private static final int bbsFbx$WORKER_COUNT = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
 
     private static final ExecutorService bbsFbx$pool = bbsFbx$WORKER_COUNT <= 1 ? null : Executors.newFixedThreadPool(
             bbsFbx$WORKER_COUNT,
             r ->
             {
-                Thread t = new Thread(r, "bbs-model-skin-worker");
+                Thread t = new Thread(r, "bbs-fbx-skin-worker");
                 t.setDaemon(true);
                 return t;
             });
@@ -173,12 +172,12 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      * render thread -- splitting work across threads costs a fixed amount of
      * dispatch/join overhead no matter how small the job is, and for a
      * handful of thousand vertices that overhead is bigger than the loop
-     * itself. 50,000 is comfortably above typical prop/character meshes
+     * itself. 20,000 is comfortably above typical prop/character meshes
      * (where the single-threaded path is already sub-millisecond) and
      * comfortably below where a high-poly FBX (hundreds of thousands of
      * vertices) actually saturates a core.
      */
-    private static final int bbsFbx$PARALLEL_THRESHOLD = 50_000;
+    private static final int bbsFbx$PARALLEL_THRESHOLD = 20_000;
 
     // ---------------------------------------------------------------
     // Pose cache
@@ -201,8 +200,8 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      * cancel the whole method and the GPU buffers keep the previous frame's
      * (correct) content: skinning + upload become O(bones) instead of
      * O(vertices). Any real pose change (animation, editor drag) alters the
-     * matrices and re-triggers a full re-skin. Shape weights are checked by a
-     * matching signature beside this one.</p>
+     * matrices and re-triggers a full re-skin. Disabled while shape keys are
+     * active (their weights aren't part of the signature).</p>
      */
     @Unique
     private boolean bbsFbx$poseCacheValid;
@@ -371,96 +370,10 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     @Unique
     private ShapeKeys bbsFbx$shapeKeys;
 
-    @Unique
-    private float[] bbsFbx$shapeWeightCache = new float[0];
-
-    @Unique
-    private float[] bbsFbx$shapeWeightScratch = new float[0];
-
-    @Unique
-    private boolean bbsFbx$shapeWeightCacheValid;
-
-    @Unique
-    private Object bbsFbx$shapeWeightDataRef;
-
     @Override
     public void bbsFbx$setShapeKeys(ShapeKeys shapeKeys)
     {
         this.bbsFbx$shapeKeys = shapeKeys;
-    }
-
-    /**
-     * Exact shape-weight signature paired with the bone pose signature. A
-     * held facial expression no longer forces identical vertex buffers to be
-     * rebuilt and uploaded every rendered frame.
-     */
-    @Unique
-    private boolean bbsFbx$shapeWeightsUnchanged()
-    {
-        if (!(this.data instanceof FBXCompiledData fbxData)
-                || fbxData.shapeKeyDeltas == null || fbxData.shapeKeyDeltas.isEmpty())
-        {
-            this.bbsFbx$shapeWeightCacheValid = false;
-            this.bbsFbx$shapeWeightDataRef = null;
-
-            return true;
-        }
-
-        int count = fbxData.shapeKeyDeltas.size();
-
-        if (this.bbsFbx$shapeWeightCache.length != count)
-        {
-            this.bbsFbx$shapeWeightCache = new float[count];
-            this.bbsFbx$shapeWeightScratch = new float[count];
-            this.bbsFbx$shapeWeightCacheValid = false;
-        }
-
-        if (this.bbsFbx$shapeWeightDataRef != this.data)
-        {
-            this.bbsFbx$shapeWeightCacheValid = false;
-        }
-
-        int i = 0;
-
-        for (String name : fbxData.shapeKeyDeltas.keySet())
-        {
-            Float weight = this.bbsFbx$shapeKeys == null ? null : this.bbsFbx$shapeKeys.shapeKeys.get(name);
-
-            this.bbsFbx$shapeWeightScratch[i++] = weight == null ? 0F : weight;
-        }
-
-        if (this.bbsFbx$shapeWeightCacheValid
-                && Arrays.equals(this.bbsFbx$shapeWeightScratch, this.bbsFbx$shapeWeightCache))
-        {
-            return true;
-        }
-
-        float[] swap = this.bbsFbx$shapeWeightCache;
-        this.bbsFbx$shapeWeightCache = this.bbsFbx$shapeWeightScratch;
-        this.bbsFbx$shapeWeightScratch = swap;
-        this.bbsFbx$shapeWeightCacheValid = true;
-        this.bbsFbx$shapeWeightDataRef = this.data;
-
-        return false;
-    }
-
-    @Unique
-    private boolean bbsFbx$hasActiveShapeKeys(FBXCompiledData fbxData)
-    {
-        if (this.bbsFbx$shapeKeys == null || this.bbsFbx$shapeKeys.shapeKeys.isEmpty())
-        {
-            return false;
-        }
-
-        for (Map.Entry<String, Float> entry : this.bbsFbx$shapeKeys.shapeKeys.entrySet())
-        {
-            if (entry.getValue() != 0F && fbxData.shapeKeyDeltas.containsKey(entry.getKey()))
-            {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
@@ -640,18 +553,17 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     @Inject(method = "updateMesh", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$updateMeshOptimized(StencilMap stencilMap, CallbackInfo info)
     {
-        /* Pose cache: skip skinning + upload entirely when neither the bones
-         * nor shape weights changed (static/held poses pay O(bones + keys)
-         * instead of O(vertices)). */
-        boolean shapeKeysActive = this.data instanceof FBXCompiledData fbxCheck
-                && fbxCheck.shapeKeyDeltas != null && !fbxCheck.shapeKeyDeltas.isEmpty()
-                && this.bbsFbx$hasActiveShapeKeys(fbxCheck);
+        /* Pose cache: skip skinning + upload entirely when the pose hasn't
+         * changed since the last call (static props pay O(bones) instead of
+         * O(vertices)). Shape-keyed models bypass the cache -- their blend
+         * output depends on the per-frame key weights. */
+        boolean shapeKeysActive = this.bbsFbx$shapeKeys != null && !this.bbsFbx$shapeKeys.shapeKeys.isEmpty()
+                && this.data instanceof FBXCompiledData fbxCheck
+                && fbxCheck.shapeKeyDeltas != null && !fbxCheck.shapeKeyDeltas.isEmpty();
 
-        boolean poseUnchanged = this.bbsFbx$poseUnchanged(stencilMap);
-        boolean shapeWeightsUnchanged = this.bbsFbx$shapeWeightsUnchanged();
-        boolean unchanged = poseUnchanged && shapeWeightsUnchanged;
+        boolean unchanged = this.bbsFbx$poseUnchanged(stencilMap);
 
-        if (unchanged)
+        if (!shapeKeysActive && unchanged)
         {
             info.cancel();
 
@@ -697,9 +609,10 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
         float[] bones = this.bbsFbx$boneMatrixScratch(matrices.length);
 
-        /* poseUnchanged() already flattened these exact matrices for its
-         * signature, so reuse that result instead of traversing them twice. */
-        System.arraycopy(this.bbsFbx$poseCache, 0, bones, 0, matrices.length * 16);
+        for (int b = 0; b < matrices.length; b++)
+        {
+            matrices[b].get(bones, b * 16);
+        }
 
         float[] newVertices = this.tmpVertices;
         float[] newNormals = this.tmpNormals;
@@ -823,7 +736,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         {
             Thread.currentThread().interrupt();
 
-            throw new RuntimeException("Interrupted while waiting on model skinning workers", e);
+            throw new RuntimeException("Interrupted while waiting on FBX skinning workers", e);
         }
 
         RuntimeException failed = failure.get();

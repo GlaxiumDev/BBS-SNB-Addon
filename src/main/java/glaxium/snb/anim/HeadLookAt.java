@@ -14,9 +14,6 @@ import mchorse.bbs_mod.utils.pose.Transform;
 
 import org.joml.Vector3f;
 
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-
 /**
  * Head look-at for addon-imported FBX/GLB/glTF only (models carrying
  * {@link IFbxModel} data). Native BOBJ is left entirely to stock BBS.
@@ -29,29 +26,6 @@ public final class HeadLookAt
 {
     private static final String DEFAULT_HEAD = "head";
     private static final float DEFAULT_LIMIT = 45.0F;
-    private static final LookSettings DEFAULTS = new LookSettings(DEFAULT_HEAD, true, DEFAULT_LIMIT);
-    private static final ThreadLocal<LookSettings> SETTINGS = ThreadLocal.withInitial(
-            () -> new LookSettings(DEFAULT_HEAD, true, DEFAULT_LIMIT));
-    private static final Method GET_VIEW = findGetView();
-    private static final Field VIEW_FIELD = findViewField();
-    private static final ClassValue<ViewFields> VIEW_FIELDS = new ClassValue<>()
-    {
-        @Override
-        protected ViewFields computeValue(Class<?> type)
-        {
-            try
-            {
-                return new ViewFields(
-                        type.getField("headBone"),
-                        type.getField("pitch"),
-                        type.getField("constraint"));
-            }
-            catch (ReflectiveOperationException e)
-            {
-                return ViewFields.MISSING;
-            }
-        }
-    };
 
     private HeadLookAt()
     {
@@ -117,87 +91,53 @@ public final class HeadLookAt
      */
     private static LookSettings resolveLookSettings(IModelInstance instance)
     {
+        LookSettings defaults = new LookSettings(DEFAULT_HEAD, true, DEFAULT_LIMIT);
+
         if (!(instance instanceof ModelInstance modelInstance))
         {
-            return DEFAULTS;
+            return defaults;
         }
 
         Object view = null;
 
         try
         {
-            if (GET_VIEW != null)
-            {
-                view = GET_VIEW.invoke(modelInstance);
-            }
-            else if (VIEW_FIELD != null)
-            {
-                view = VIEW_FIELD.get(modelInstance);
-            }
+            view = ModelInstance.class.getMethod("getView").invoke(modelInstance);
         }
-        catch (ReflectiveOperationException | RuntimeException ignored)
+        catch (ReflectiveOperationException ignored)
         {
-            return DEFAULTS;
+            try
+            {
+                view = ModelInstance.class.getField("view").get(modelInstance);
+            }
+            catch (ReflectiveOperationException ignoredAgain)
+            {
+                return defaults;
+            }
         }
 
         if (view == null)
         {
-            return DEFAULTS;
+            return defaults;
         }
 
         try
         {
-            ViewFields fields = VIEW_FIELDS.get(view.getClass());
-
-            if (fields == ViewFields.MISSING)
-            {
-                return DEFAULTS;
-            }
-
-            String headBone = (String) fields.headBone.get(view);
-            boolean pitch = fields.pitch.getBoolean(view);
-            float limit = fields.constraint.getFloat(view);
+            Class<?> viewClass = view.getClass();
+            String headBone = (String) viewClass.getField("headBone").get(view);
+            boolean pitch = viewClass.getField("pitch").getBoolean(view);
+            float limit = viewClass.getField("constraint").getFloat(view);
 
             if (headBone == null || headBone.trim().isEmpty())
             {
-                return DEFAULTS;
+                return defaults;
             }
 
-            LookSettings settings = SETTINGS.get();
-
-            settings.boneName = headBone.trim();
-            settings.pitch = pitch;
-            settings.limit = limit > 0.0F ? limit : DEFAULT_LIMIT;
-
-            return settings;
+            return new LookSettings(headBone.trim(), pitch, limit > 0.0F ? limit : DEFAULT_LIMIT);
         }
         catch (ReflectiveOperationException | ClassCastException ignored)
         {
-            return DEFAULTS;
-        }
-    }
-
-    private static Method findGetView()
-    {
-        try
-        {
-            return ModelInstance.class.getMethod("getView");
-        }
-        catch (ReflectiveOperationException e)
-        {
-            return null;
-        }
-    }
-
-    private static Field findViewField()
-    {
-        try
-        {
-            return ModelInstance.class.getField("view");
-        }
-        catch (ReflectiveOperationException e)
-        {
-            return null;
+            return defaults;
         }
     }
 
@@ -238,31 +178,15 @@ public final class HeadLookAt
 
     private static final class LookSettings
     {
-        private String boneName;
-        private boolean pitch;
-        private float limit;
+        final String boneName;
+        final boolean pitch;
+        final float limit;
 
         LookSettings(String boneName, boolean pitch, float limit)
         {
             this.boneName = boneName;
             this.pitch = pitch;
             this.limit = limit;
-        }
-    }
-
-    private static final class ViewFields
-    {
-        private static final ViewFields MISSING = new ViewFields(null, null, null);
-
-        private final Field headBone;
-        private final Field pitch;
-        private final Field constraint;
-
-        private ViewFields(Field headBone, Field pitch, Field constraint)
-        {
-            this.headBone = headBone;
-            this.pitch = pitch;
-            this.constraint = constraint;
         }
     }
 }
