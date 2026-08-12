@@ -1,16 +1,15 @@
 package glaxium.snb.model.fbx.loaders;
 
+import glaxium.snb.animation.AnimationKeyframeBulkLoader;
+
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJChannel;
 import mchorse.bbs_mod.bobj.BOBJGroup;
-import mchorse.bbs_mod.bobj.BOBJKeyframe;
 import mchorse.bbs_mod.cubic.data.animation.Animation;
 import mchorse.bbs_mod.cubic.data.animation.AnimationPart;
 import mchorse.bbs_mod.cubic.data.animation.Animations;
-import mchorse.bbs_mod.math.Constant;
 import mchorse.bbs_mod.math.molang.MolangParser;
 import mchorse.bbs_mod.math.molang.expressions.MolangExpression;
-import mchorse.bbs_mod.math.molang.expressions.MolangValue;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 
 import java.util.Map;
@@ -56,10 +55,7 @@ public final class FBXAnimationConverter
 
                     if (targetChannel != null)
                     {
-                        for (BOBJKeyframe kf : channel.keyframes)
-                        {
-                            targetChannel.insert(kf.frame, new MolangValue(parser, new Constant(kf.value)));
-                        }
+                        AnimationKeyframeBulkLoader.copyValues(channel, targetChannel, parser);
                     }
                 }
 
