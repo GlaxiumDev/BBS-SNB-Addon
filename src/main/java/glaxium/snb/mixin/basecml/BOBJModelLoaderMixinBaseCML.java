@@ -6,6 +6,7 @@ import glaxium.snb.model.fbx.loaders.FBXMeshCompiler;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXTextureResolverCML;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader;
@@ -77,7 +78,7 @@ public abstract class BOBJModelLoaderMixinBaseCML
             String id, ModelManager models, Link model, Collection<Link> links, MapType config,
             CallbackInfoReturnable<ModelInstance> cir)
     {
-        /* FBX/glTF folders have no .bobj — bail before getAsset so every Assimp
+        /* FBX/glTF folders have no .bobj — bail before getAsset so every scene
          * model does not pay a FileNotFoundException + stack dump on the BOBJ
          * loader that runs first in ModelManager.loadModel. */
         if (!bbsFbx$hasBobj(links))
@@ -100,6 +101,8 @@ public abstract class BOBJModelLoaderMixinBaseCML
                 }
 
                 BOBJData bobjData = BOBJLoader.readData(stream);
+
+                EmoticonArmorSidecar.tryMerge(id, models.provider, model, bobjData);
 
                 if (bobjData.armatures.isEmpty())
                 {

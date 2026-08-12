@@ -4,6 +4,7 @@ import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.render.CurrentMaterialPbrOverrides;
 import glaxium.snb.render.MaterialPbrIntensity;
 import glaxium.snb.render.TextureBindRestore;
+import glaxium.snb.render.CurrentEmoticonArmor;
 
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.bobj.BOBJArmature;
@@ -28,6 +29,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -63,6 +65,40 @@ public abstract class BOBJModelVAOMixinCML
     @Shadow public BOBJLoader.CompiledData data;
     @Shadow public BOBJArmature armature;
     @Shadow private int vao;
+
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
+    private void bbsFbx$hideEmptyArmorSlot(
+            ShaderProgram shader, MatrixStack stack, float r, float g, float b, float a,
+            StencilMap stencilMap, int light, int overlay, Link defaultTexture, CallbackInfo info)
+    {
+        if (CurrentEmoticonArmor.shouldHide(bbsFbx$meshName()))
+        {
+            info.cancel();
+        }
+    }
+
+    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 0, argsOnly = true, remap = false)
+    private float bbsFbx$tintArmorRed(float value)
+    {
+        return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 0, value);
+    }
+
+    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 1, argsOnly = true, remap = false)
+    private float bbsFbx$tintArmorGreen(float value)
+    {
+        return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 1, value);
+    }
+
+    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 2, argsOnly = true, remap = false)
+    private float bbsFbx$tintArmorBlue(float value)
+    {
+        return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 2, value);
+    }
+
+    private String bbsFbx$meshName()
+    {
+        return this.data == null || this.data.mesh == null ? null : this.data.mesh.name;
+    }
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$renderPerMaterial(
@@ -139,11 +175,27 @@ public abstract class BOBJModelVAOMixinCML
 
             for (int m = 0; m < materialNames.length; m++)
             {
-                Link override = overrides.get(materialNames[m]);
-                Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
-                Link toUse = override != null ? override : (sharedDefault != null ? sharedDefault : defaultTexture);
+                String materialName = materialNames[m];
 
-                MaterialPbrIntensity pbr = pbrOverrides.get(materialNames[m]);
+                if (CurrentEmoticonArmor.shouldHide(materialName))
+                {
+                    continue;
+                }
+
+                Link override = overrides.get(materialName);
+                Link armorTexture = CurrentEmoticonArmor.texture(materialName);
+                Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
+                Link toUse = override != null ? override : (armorTexture != null ? armorTexture
+                        : (sharedDefault != null ? sharedDefault : defaultTexture));
+
+                MaterialPbrIntensity pbr = pbrOverrides.get(materialName);
+
+                GL30.glVertexAttrib4f(
+                        Attributes.COLOR,
+                        CurrentEmoticonArmor.tint(materialName, 0, r),
+                        CurrentEmoticonArmor.tint(materialName, 1, g),
+                        CurrentEmoticonArmor.tint(materialName, 2, b),
+                        a);
 
                 if (pbr != null)
                 {

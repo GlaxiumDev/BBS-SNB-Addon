@@ -8,6 +8,8 @@ import mchorse.bbs_mod.l10n.L10n;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.resources.packs.InternalAssetsSourcePack;
 
+import glaxium.snb.model.bobj.MinecraftTextureSourcePack;
+
 import java.util.List;
 
 import org.slf4j.Logger;
@@ -63,6 +65,7 @@ public class BBSFbxAddon implements BBSAddonMod
     public void registerSourcePacks(RegisterSourcePacksEvent event)
     {
         event.provider.register(new InternalAssetsSourcePack("bbs_fbx", "assets/bbs_fbx", BBSFbxAddon.class));
+        event.provider.register(new MinecraftTextureSourcePack());
     }
 
     @Subscribe

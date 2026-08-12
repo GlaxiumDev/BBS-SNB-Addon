@@ -85,4 +85,5 @@ public abstract class BOBJModelMixin implements IFbxModel
             info.setReturnValue(this.bbsFbx$shapeKeyNames);
         }
     }
+
 }
