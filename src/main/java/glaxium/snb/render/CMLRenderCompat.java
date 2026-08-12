@@ -55,6 +55,9 @@ public final class CMLRenderCompat
     private static Method setPBRTextureIntensity;
     private static boolean pbrIntensityFailed;
 
+    private static Method uploadColorGrade;
+    private static boolean colorGradeFailed;
+
     private CMLRenderCompat()
     {}
 
@@ -356,6 +359,31 @@ public final class CMLRenderCompat
         catch (Throwable t)
         {
             pbrIntensityFailed = true;
+        }
+    }
+
+    /** Uploads CML's optional Iris color grade without per-draw lookup. */
+    public static void uploadColorGrade()
+    {
+        if (colorGradeFailed)
+        {
+            return;
+        }
+
+        try
+        {
+            if (uploadColorGrade == null)
+            {
+                Class<?> patch = Class.forName("mchorse.bbs_mod.utils.iris.FormColorGradePatch");
+
+                uploadColorGrade = patch.getMethod("uploadToCurrentProgram");
+            }
+
+            uploadColorGrade.invoke(null);
+        }
+        catch (Throwable t)
+        {
+            colorGradeFailed = true;
         }
     }
 

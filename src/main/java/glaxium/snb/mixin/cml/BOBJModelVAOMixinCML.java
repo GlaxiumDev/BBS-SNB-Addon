@@ -1,6 +1,7 @@
 package glaxium.snb.mixin.cml;
 
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
+import glaxium.snb.render.CMLRenderCompat;
 import glaxium.snb.render.CurrentMaterialPbrOverrides;
 import glaxium.snb.render.MaterialPbrIntensity;
 import glaxium.snb.render.TextureBindRestore;
@@ -263,16 +264,7 @@ public abstract class BOBJModelVAOMixinCML
      */
     private static void bbsFbx$uploadColorGrade()
     {
-        try
-        {
-            Class<?> patch = Class.forName("mchorse.bbs_mod.utils.iris.FormColorGradePatch");
-
-            patch.getMethod("uploadToCurrentProgram").invoke(null);
-        }
-        catch (ReflectiveOperationException ignored)
-        {
-            // Not present on this CML build - nothing to do.
-        }
+        CMLRenderCompat.uploadColorGrade();
     }
 
     /**
@@ -288,14 +280,6 @@ public abstract class BOBJModelVAOMixinCML
      */
     private static void bbsFbx$setPbrIntensity(float normal, float specular)
     {
-        try
-        {
-            BBSRendering.class.getMethod("setPBRTextureIntensity", float.class, float.class)
-                    .invoke(null, normal, specular);
-        }
-        catch (ReflectiveOperationException ignored)
-        {
-            // Not present on this CML build - nothing to do.
-        }
+        CMLRenderCompat.stagePbrIntensity(normal, specular);
     }
 }
