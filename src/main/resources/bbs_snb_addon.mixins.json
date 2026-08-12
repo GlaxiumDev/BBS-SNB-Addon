@@ -9,8 +9,6 @@
     "ImportersMixin",
     "BOBJModelMixin",
     "BOBJModelLoaderArmorMixin",
-    "BOBJModelLoaderOptimizationMixin",
-    "BOBJLoaderFastParserMixin",
     "BOBJModelVAOMixin",
     "ModelInstanceArmorMixin",
     "AnimatorMixin",
