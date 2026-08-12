@@ -25,11 +25,6 @@ BBS Addon Engine required.
 - Shape keys, blended per-vertex on the same per-material draw path
 - Armature/skeletal animation baking from FBX's node hierarchy into BBS's
   bone format
-- Faster native model loading and rendering: streaming BOBJ parsing, bulk
-  animation-channel construction, allocation-free animation sampling and bone
-  matrices, pose/shape-weight upload caching, and primitive OBJ VAO building.
-  These shared paths also optimize existing BOBJ and OBJ models; they are not
-  limited to imported FBX/glTF models
 - Old Emoticons-style skinned armor for `emoticons/steve`, `alex`, and the
   Steve/Alex Bend models (`steve_simple`/`alex_simple` internally). Armor is supplied by independent
   `armor.bobj` sidecars, rebound to the untouched model armature by bone
