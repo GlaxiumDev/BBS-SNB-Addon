@@ -1,6 +1,7 @@
 package glaxium.snb.mixin;
 
 import glaxium.snb.BBSFbxAddon;
+import glaxium.snb.model.bbssnb.BBSSNBModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
 import glaxium.snb.model.fbx.loaders.ModelLoadInFlight;
@@ -17,10 +18,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Registers the FBX/glTF model loader with {@link ModelManager} and teaches it
- * which paths under {@code models/} are importable model files ({@link
- * SceneFormat}: {@code .fbx}, {@code .gltf}, {@code .glb}) that should trigger
- * a reload watch.
+ * Registers the BBS S&amp;B and FBX/glTF model loaders with {@link ModelManager}
+ * and teaches it which paths under {@code models/} are importable scene files
+ * ({@link SceneFormat}: {@code .fbx}, {@code .gltf}, {@code .glb}) that should
+ * trigger a reload watch. Stock BBS already watches {@code .bbs.json} files.
  *
  * <p>Fork-agnostic on purpose: {@code setupLoaders}, {@code isRelodable(Link)},
  * the public {@code loaders} field, and {@code reload()} all have the exact
@@ -39,8 +40,12 @@ public class ModelManagerMixin
     private void bbsFbx$registerFbxLoader(CallbackInfo info)
     {
         ModelManager manager = (ModelManager) (Object) this;
+        /* Stock order starts with BOBJ then Cubic. Keep BOBJ's established
+         * priority, but claim marked BBS S&B packages before CubicModelLoader
+         * mistakes their .bbs.json extension for the legacy cubic schema. */
+        manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
         manager.loaders.add(new FBXModelLoader());
-        BBSFbxAddon.LOGGER.info("FBX/glTF model loader registered");
+        BBSFbxAddon.LOGGER.info("BBS S&B and FBX/glTF model loaders registered");
     }
 
     @Inject(method = "isRelodable", at = @At("HEAD"), cancellable = true, remap = false)
@@ -76,7 +81,7 @@ public class ModelManagerMixin
         if (size > 0)
         {
             FBXModelLoadCache.clear();
-            BBSFbxAddon.LOGGER.info("Cleared FBX model load cache ({} entries) for reload", size);
+            BBSFbxAddon.LOGGER.info("Cleared scene model load cache ({} entries) for reload", size);
         }
     }
 

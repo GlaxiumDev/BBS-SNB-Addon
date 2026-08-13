@@ -12,3 +12,4 @@
 # cross-referencing real BBS fork source/bytecode during development -- not
 # a build dependency, never published.
 /reference-sources/
+/tools/

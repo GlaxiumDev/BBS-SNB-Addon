@@ -12,6 +12,13 @@ BBS Addon Engine required.
 
 ## Features
 
+- `BBS S&B.js`, a Blockbench 5 importer/exporter that writes one portable
+  `model.bbs.json` with embedded textures, armatures, bind matrices,
+  weight-painted skinning and sampled animations. Its Smooth Shading option
+  is off by default; BBS applies the exported flat/smooth normal mode while
+  preserving the same vertex weights. Importing that file restores an
+  editable Blockbench project with its meshes, embedded textures, armature,
+  weight paint, animations and shading mode
 - Geometry + skeletal animation, converted from binary FBX 7.x, glTF 2.0 and
   GLB by the addon's pure-Java readers into BBS's cubic/BOBJ model format.
   No Assimp binaries or platform-specific native libraries are bundled.
@@ -54,6 +61,21 @@ during mixin bootstrap); everything else is fork-agnostic and shared.
    (Base, FS, or CML EDITION) into `libs/`.
 2. `./gradlew build`
 3. Output jar lands in `build/libs/`.
+
+## Blockbench importer and exporter
+
+Load `BBS S&B.js` as a local Blockbench plugin, then use **File → Export →
+Export BBS S&B model**. Put the resulting `model.bbs.json` in the model's BBS
+asset folder. The addon detects the `bbs_snb` package marker before BBS's
+legacy cubic JSON loader; ordinary `.bbs.json`, OBJ, BOBJ, FBX, glTF and GLB
+models keep using their existing loaders.
+
+Use **File → Import → Import BBS S&B model** to reopen an exported
+`model.bbs.json` as an editable Blockbench project. The importer reconstructs
+meshes, textures, armatures, bone weights, animation clips and the exported
+flat/smooth shading choice. Runtime export merges geometry where necessary,
+so the imported mesh-object split may differ from the original project even
+though the rendered geometry and rig data are retained.
 
 ## Credits
 
