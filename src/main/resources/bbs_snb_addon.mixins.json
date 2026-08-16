@@ -8,6 +8,8 @@
     "ModelLoaderDedupeMixin",
     "ImportersMixin",
     "BOBJModelMixin",
+    "LegacyModelInstanceMixin",
+    "ProceduralAnimatorLegacyMixin",
     "BOBJModelLoaderArmorMixin",
     "BOBJModelVAOMixin",
     "AnimatorMixin",

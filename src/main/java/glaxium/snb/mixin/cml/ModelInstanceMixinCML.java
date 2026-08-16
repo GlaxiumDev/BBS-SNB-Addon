@@ -5,6 +5,8 @@ import glaxium.snb.model.fbx.loaders.IFbxModel;
 import glaxium.snb.model.fbx.loaders.IMaterialTextureHolder;
 import glaxium.snb.model.fbx.loaders.IShapeKeyHolder;
 import glaxium.snb.render.MaterialTextureDelegate;
+import glaxium.snb.model.blockbuster.LegacyBBModel;
+import glaxium.snb.model.blockbuster.LegacyBBRenderer;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -22,6 +24,8 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
 import java.util.function.Supplier;
@@ -55,6 +59,19 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
 {
     @Shadow public IModel model;
     @Shadow public String id;
+
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
+    private void bbsFbx$renderLegacyBB(
+            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
+            int light, int overlay, StencilMap stencilMap, ShapeKeys keys,
+            Link defaultTexture, CallbackInfo ci)
+    {
+        if (this.model instanceof LegacyBBModel legacy)
+        {
+            LegacyBBRenderer.render(legacy, stack, program, color, light, overlay, stencilMap);
+            ci.cancel();
+        }
+    }
 
     @Redirect(
             method = "render",

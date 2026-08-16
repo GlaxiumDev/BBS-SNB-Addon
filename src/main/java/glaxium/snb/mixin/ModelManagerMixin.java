@@ -2,6 +2,7 @@ package glaxium.snb.mixin;
 
 import glaxium.snb.BBSFbxAddon;
 import glaxium.snb.model.bbssnb.BBSSNBModelLoader;
+import glaxium.snb.model.blockbuster.BlockbusterModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
 import glaxium.snb.model.fbx.loaders.ModelLoadInFlight;
@@ -10,12 +11,16 @@ import glaxium.snb.model.fbx.loaders.SceneFormat;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.model.ModelManager;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.utils.watchdog.WatchDogEvent;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import java.nio.file.Path;
+import java.util.List;
 
 /**
  * Registers the BBS S&amp;B and FBX/glTF model loaders with {@link ModelManager}
@@ -44,7 +49,35 @@ public class ModelManagerMixin
          * priority, but claim marked BBS S&B packages before CubicModelLoader
          * mistakes their .bbs.json extension for the legacy cubic schema. */
         manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
-        manager.loaders.add(new FBXModelLoader());
+        manager.loaders.add(Math.min(2, manager.loaders.size()), new BlockbusterModelLoader());
+
+        /* Slot our scene loader ahead of the rest. CML EDITION ships its own
+         * GLTFModelLoader, which imports glTF/GLB with a single model texture
+         * (no per-material split) -- placing ours after it (the old add-at-end
+         * behavior) meant every glTF/GLB on CML went through the native
+         * loader and never saw multi-texture. FBXModelLoader returns null for
+         * any folder without an importable scene file, so running it earlier
+         * never steals BOBJ/cubic/vox/.bbs.json models from the native
+         * loaders. Found by simple-name so this compiles against Base/FS too
+         * (neither has the CML class). */
+        FBXModelLoader fbxLoader = new FBXModelLoader();
+        int insertAt = -1;
+
+        for (int i = 0; i < manager.loaders.size(); i++)
+        {
+            if (manager.loaders.get(i).getClass().getSimpleName().equals("GLTFModelLoader"))
+            {
+                insertAt = i;
+                break;
+            }
+        }
+
+        if (insertAt < 0)
+        {
+            insertAt = Math.min(3, manager.loaders.size());
+        }
+
+        manager.loaders.add(insertAt, fbxLoader);
         BBSFbxAddon.LOGGER.info("BBS S&B and FBX/glTF model loaders registered");
     }
 
@@ -68,10 +101,76 @@ public class ModelManagerMixin
         if (path.startsWith(ModelManager.MODELS_PREFIX)
                 && !path.contains("/animations/")
                 && !path.contains("/shapes/")
+                && BlockbusterModelLoader.isFolderModelJson(link))
+        {
+            info.setReturnValue(true);
+            return;
+        }
+
+        if (path.startsWith(ModelManager.MODELS_PREFIX)
+                && !path.contains("/animations/")
+                && !path.contains("/shapes/")
+                && BlockbusterModelLoader.isFolderStandaloneLegacyAsset(((ModelManager) (Object) this).provider, link))
+        {
+            info.setReturnValue(true);
+            return;
+        }
+
+        if (path.startsWith(ModelManager.MODELS_PREFIX)
+                && !path.contains("/animations/")
+                && !path.contains("/shapes/")
                 && SceneFormat.fromPath(path) != null)
         {
             info.setReturnValue(true);
         }
+    }
+
+    @Inject(method = "getAvailableKeys", at = @At("RETURN"), remap = false)
+    private void bbsFbx$addLegacyStandaloneModels(CallbackInfoReturnable<List<String>> info)
+    {
+        List<String> keys = info.getReturnValue();
+
+        if (keys == null)
+        {
+            return;
+        }
+
+        ModelManager manager = (ModelManager) (Object) this;
+
+        for (String id : BlockbusterModelLoader.discoverStandalone(manager.provider))
+        {
+            if (!keys.contains(id))
+            {
+                keys.add(id);
+            }
+        }
+    }
+
+    @Inject(method = "accept", at = @At("HEAD"), cancellable = true, remap = false)
+    private void bbsFbx$reloadLegacyStandalone(Path path, WatchDogEvent event, CallbackInfo info)
+    {
+        ModelManager manager = (ModelManager) (Object) this;
+        Link link = manager.provider.getLink(path.toFile());
+
+        if (link == null || !BlockbusterModelLoader.isStandaloneCandidatePath(link.path))
+        {
+            return;
+        }
+
+        if (event != WatchDogEvent.DELETED && !BlockbusterModelLoader.isStandaloneLegacyAsset(manager.provider, link))
+        {
+            return;
+        }
+
+        String id = BlockbusterModelLoader.standaloneId(link.path);
+        ModelInstance instance = manager.models.remove(id);
+
+        if (instance != null)
+        {
+            instance.delete();
+        }
+
+        info.cancel();
     }
 
     @Inject(method = "reload", at = @At("HEAD"), remap = false)
