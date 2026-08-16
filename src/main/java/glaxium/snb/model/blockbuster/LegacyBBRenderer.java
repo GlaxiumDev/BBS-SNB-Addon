@@ -13,6 +13,7 @@ import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
 import mchorse.bbs_mod.utils.colors.Color;
 import net.minecraft.client.gl.ShaderProgram;
+import net.minecraft.client.gl.GlUniform;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
 import net.minecraft.client.render.LightmapTextureManager;
@@ -45,6 +46,28 @@ public final class LegacyBBRenderer
             StencilMap stencil)
     {
         ShaderProgram activeShader = shader.get();
+
+        /* This CML build reserves picker ID 7 for Gizmo.STENCIL_FREE, but its
+         * StencilMap also starts model picking at 7. That makes the first
+         * legacy group activate the gizmo and move the previously selected
+         * group instead of selecting itself. Keep legacy groups beyond all
+         * seven reserved gizmo IDs and refresh Target because BBS configured
+         * the picker shader before this adjustment. */
+        if (stencil != null)
+        {
+            if (stencil.objectIndex == 7)
+            {
+                stencil.objectIndex = 8;
+            }
+
+            GlUniform target = activeShader.getUniform("Target");
+
+            if (target != null)
+            {
+                target.set(stencil.objectIndex);
+            }
+        }
+
         RenderSystem.setShader(() -> activeShader);
         TextureBindRestore.Snapshot texture = TextureBindRestore.capture();
 
