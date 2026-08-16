@@ -4,6 +4,7 @@ import glaxium.snb.render.CurrentMaterialTextureOverrides;
 import glaxium.snb.render.TextureBindRestore;
 import glaxium.snb.render.MultiMaterialTriangleDraw;
 import glaxium.snb.render.CurrentEmoticonArmor;
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 
 import mchorse.bbs_mod.BBSModClient;
@@ -174,7 +175,14 @@ public abstract class BOBJModelVAOMixinFS
             {
                 Link override = overrides.get(materialNames[m]);
                 Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
-                Link texture = override != null ? override : sharedDefault;
+                /* With at most one UI-visible (non-armor) material the model is
+                 * effectively single-texture: the caller-bound whole-model
+                 * texture (the form's "texture" override) must govern, not the
+                 * per-material folder default -- otherwise whole-model
+                 * "textures" keyframes in films never visibly apply. Mirrors
+                 * FS's native ignoreMaterials logic. */
+                Link texture = override != null ? override
+                        : (sharedDefault != null && !bbsFbx$singleUiMaterial(fbxData) ? sharedDefault : null);
 
                 if (texture != null)
                 {
@@ -219,5 +227,28 @@ public abstract class BOBJModelVAOMixinFS
             GL30.glBindBuffer(GL30.GL_ELEMENT_ARRAY_BUFFER, currentElementArrayBuffer);
             TextureBindRestore.restore(textureSnapshot);
         }
+    }
+
+    /** True when at most one UI-visible (non-armor) material remains. */
+    private static boolean bbsFbx$singleUiMaterial(FBXCompiledData fbxData)
+    {
+        String[] names = fbxData.materialNames;
+
+        if (names == null)
+        {
+            return true;
+        }
+
+        int count = 0;
+
+        for (String name : names)
+        {
+            if (name != null && !EmoticonArmorSidecar.isArmorMesh(name) && ++count > 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

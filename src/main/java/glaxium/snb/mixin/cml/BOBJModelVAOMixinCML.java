@@ -1,5 +1,6 @@
 package glaxium.snb.mixin.cml;
 
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.render.CurrentMaterialPbrOverrides;
 import glaxium.snb.render.MaterialPbrIntensity;
@@ -110,7 +111,20 @@ public abstract class BOBJModelVAOMixinCML
          * host's own bone-override branch already special-cases by skipping straight to a
          * full-mesh draw) - leave those, and every non-multi-material model, to the original
          * method untouched. */
-        if (stencilMap != null || !(this.data instanceof FBXCompiledData fbxData) || !fbxData.hasMultipleMaterials())
+        if (!(this.data instanceof FBXCompiledData fbxData) || !fbxData.hasMultipleMaterials())
+        {
+            return;
+        }
+
+        boolean stencilPick = stencilMap != null;
+
+        /* Stencil-pick pass: the native render draws the whole buffer, which
+         * would include the armor shells merged into this VAO even while
+         * they're hidden (unequipped) -- making them hover-highlightable.
+         * Take the pass over only when an armor material is actually hidden
+         * so the armature picker never sees armor; otherwise the native
+         * stencil draw is identical and cheaper. */
+        if (stencilPick && !bbsFbx$hasHiddenArmor(fbxData))
         {
             return;
         }
@@ -167,6 +181,12 @@ public abstract class BOBJModelVAOMixinCML
             if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
             if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
 
+            /* The picker's per-vertex object index comes from the light
+             * buffer (heaviest bone per vertex, built by updateMesh), so the
+             * stencil pass must read that attribute -- same as the native
+             * render does when stencilMap != null. */
+            if (stencilPick) GL30.glEnableVertexAttribArray(Attributes.LIGHTMAP_UV);
+
             String[] materialNames = fbxData.materialNames;
             Link[] materialTextures = fbxData.materialTextures;
             java.util.Map<String, Link> overrides = glaxium.snb.render.CurrentMaterialTextureOverrides.current();
@@ -182,11 +202,24 @@ public abstract class BOBJModelVAOMixinCML
                     continue;
                 }
 
+                if (stencilPick)
+                {
+                    glaxium.snb.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+
+                    continue;
+                }
+
                 Link override = overrides.get(materialName);
                 Link armorTexture = CurrentEmoticonArmor.texture(materialName);
                 Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
+                /* With at most one UI-visible (non-armor) material the model is
+                 * effectively single-texture: the form's whole-model "texture"
+                 * override (defaultTexture) must govern, not the per-material
+                 * folder default -- otherwise whole-model "textures" keyframes
+                 * in films never visibly apply. Mirrors FS's native
+                 * ignoreMaterials logic. */
                 Link toUse = override != null ? override : (armorTexture != null ? armorTexture
-                        : (sharedDefault != null ? sharedDefault : defaultTexture));
+                        : (sharedDefault != null && !bbsFbx$singleUiMaterial(fbxData) ? sharedDefault : defaultTexture));
 
                 MaterialPbrIntensity pbr = pbrOverrides.get(materialName);
 
@@ -237,6 +270,7 @@ public abstract class BOBJModelVAOMixinCML
 
             if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
             if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            if (stencilPick) GL30.glDisableVertexAttribArray(Attributes.LIGHTMAP_UV);
 
             shader.unbind();
         }
@@ -246,6 +280,50 @@ public abstract class BOBJModelVAOMixinCML
             GL30.glBindBuffer(GL30.GL_ELEMENT_ARRAY_BUFFER, currentElementArrayBuffer);
             TextureBindRestore.restore(textureSnapshot);
         }
+    }
+
+    /** True when any of this VAO's materials is a hidden (unequipped) armor shell. */
+    private static boolean bbsFbx$hasHiddenArmor(FBXCompiledData fbxData)
+    {
+        String[] names = fbxData.materialNames;
+
+        if (names == null)
+        {
+            return false;
+        }
+
+        for (String name : names)
+        {
+            if (name != null && EmoticonArmorSidecar.isArmorMesh(name) && CurrentEmoticonArmor.shouldHide(name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** True when at most one UI-visible (non-armor) material remains. */
+    private static boolean bbsFbx$singleUiMaterial(FBXCompiledData fbxData)
+    {
+        String[] names = fbxData.materialNames;
+
+        if (names == null)
+        {
+            return true;
+        }
+
+        int count = 0;
+
+        for (String name : names)
+        {
+            if (name != null && !EmoticonArmorSidecar.isArmorMesh(name) && ++count > 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

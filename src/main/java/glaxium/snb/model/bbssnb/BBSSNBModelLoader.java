@@ -122,6 +122,32 @@ public final class BBSSNBModelLoader implements IModelLoader
 
             data.initiateArmatures();
 
+            System.err.println("[BBS S&B][DEBUG] model=" + source.path + " verts=" + data.vertices.size());
+            {
+                float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
+                float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+                for (mchorse.bbs_mod.bobj.BOBJLoader.Vertex v : data.vertices)
+                {
+                    minX = Math.min(minX, v.x); minY = Math.min(minY, v.y); minZ = Math.min(minZ, v.z);
+                    maxX = Math.max(maxX, v.x); maxY = Math.max(maxY, v.y); maxZ = Math.max(maxZ, v.z);
+                }
+                System.err.println("[BBS S&B][DEBUG] vertsAABB=(" + String.format("%.4f", minX) + ", " + String.format("%.4f", minY) + ", " + String.format("%.4f", minZ)
+                        + ")..(" + String.format("%.4f", maxX) + ", " + String.format("%.4f", maxY) + ", " + String.format("%.4f", maxZ) + ")");
+            }
+            for (mchorse.bbs_mod.bobj.BOBJArmature arm : data.armatures.values())
+            {
+                System.err.println("[BBS S&B][DEBUG] armature=" + arm.name + " bones=" + arm.bones.size());
+                for (mchorse.bbs_mod.bobj.BOBJBone bone : arm.orderedBones)
+                {
+                    org.joml.Matrix4f m = bone.mat;
+                    System.err.println("[BBS S&B][DEBUG]   bone '" + bone.name + "' parent='" + bone.parent + "' t=("
+                            + String.format("%.4f", m.m30()) + ", " + String.format("%.4f", m.m31()) + ", "
+                            + String.format("%.4f", m.m32()) + ") r=("
+                            + String.format("%.3f", m.m00()) + ", " + String.format("%.3f", m.m01()) + ", " + String.format("%.3f", m.m02())
+                            + " | " + String.format("%.3f", m.m10()) + ", " + String.format("%.3f", m.m11()) + ", " + String.format("%.3f", m.m12())
+                            + " | " + String.format("%.3f", m.m20()) + ", " + String.format("%.3f", m.m21()) + ", " + String.format("%.3f", m.m22()) + ")");
+                }
+            }
             FBXCompiledData merged = FBXMeshCompiler.compileMergedWithMaterials(data);
             Collection<Link> effectiveLinks = withExtractedTextures(links, model, texturedMaterials);
 

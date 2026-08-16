@@ -1,5 +1,6 @@
 package glaxium.snb.mixin.fs;
 
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
 import glaxium.snb.model.fbx.loaders.IMaterialTextureHolder;
@@ -120,6 +121,14 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
 
         for (String name : names)
         {
+            /* Armor sidecar shells are equipped-state geometry, never
+             * selectable/animated materials -- keep them out of the list
+             * FS's picker and film-editor material sheets iterate. */
+            if (EmoticonArmorSidecar.isArmorMesh(name))
+            {
+                continue;
+            }
+
             if (!this.materials.contains(name))
             {
                 this.materials.add(name);
@@ -128,6 +137,11 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
 
         for (int i = 0; i < names.size(); i++)
         {
+            if (EmoticonArmorSidecar.isArmorMesh(names.get(i)))
+            {
+                continue;
+            }
+
             Link texture = defaults != null && i < defaults.length
                     ? defaults[i]
                     : MaterialTextureDelegate.getDefaultMaterialTexture(this.model, names.get(i));

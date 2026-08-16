@@ -110,15 +110,8 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     @Override
     public List<String> bbsFbx$getMaterials()
     {
-        FBXCompiledData data = this.bbsFbx$materialData();
-
-        if (data != null)
-        {
-            return List.of(data.materialNames);
-        }
-
-        /* OBJ models are native cubic models now (no FBX data) -- their
-         * per-material data lives on the cubic Model (ModelMixin). */
+        /* Delegate, not the raw materialNames list: the delegate excludes the
+         * armor sidecar shells, which must never appear in the picker menu. */
         return MaterialTextureDelegate.getMaterials(this.model);
     }
 
