@@ -1,4 +1,4 @@
-package glaxium.snb.mixin;
+package glaxium.snb.mixin.fs;
 
 import glaxium.snb.render.CurrentEmoticonArmor;
 

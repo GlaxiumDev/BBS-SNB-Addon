@@ -225,29 +225,44 @@ public class FBXModelLoader implements IModelLoader
      */
     public static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged)
     {
+        return createModel(armature, merged, false);
+    }
+
+    /**
+     * {@code simple} is the {@code BOBJModel} constructor's "Simple+ model"
+     * flag: true makes the model's setup build a
+     * {@code BOBJModelSimpleVAO}, whose {@code processData} applies the
+     * sharp 90-degree UV-based hinge to Simple+ body parts. The native
+     * loaders pass {@code id.startsWith("emoticons") && id.endsWith("_simple")},
+     * so the addon's Base/CML loader must pass the same or those models
+     * silently lose their hinge (they get a plain VAO with a no-op
+     * {@code processData} instead).
+     */
+    public static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged, boolean simple)
+    {
         try
         {
             Constructor<BOBJModel> listCtor = BOBJModel.class.getConstructor(BOBJArmature.class, List.class, boolean.class);
 
-            return listCtor.newInstance(armature, List.of(merged), false);
+            return listCtor.newInstance(armature, List.of(merged), simple);
         }
         catch (NoSuchMethodException e)
         {
-            return singleCompiledDataModel(armature, merged);
+            return singleCompiledDataModel(armature, merged, simple);
         }
         catch (ReflectiveOperationException e)
         {
-            return singleCompiledDataModel(armature, merged);
+            return singleCompiledDataModel(armature, merged, simple);
         }
     }
 
-    private static BOBJModel singleCompiledDataModel(BOBJArmature armature, FBXCompiledData merged)
+    private static BOBJModel singleCompiledDataModel(BOBJArmature armature, FBXCompiledData merged, boolean simple)
     {
         try
         {
             Constructor<BOBJModel> singleCtor = BOBJModel.class.getConstructor(BOBJArmature.class, CompiledData.class, boolean.class);
 
-            return singleCtor.newInstance(armature, merged, false);
+            return singleCtor.newInstance(armature, merged, simple);
         }
         catch (ReflectiveOperationException e)
         {
