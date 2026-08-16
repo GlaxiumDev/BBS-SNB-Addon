@@ -26,8 +26,13 @@ dependencies {
 
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// The BBS jar you're building against (Base, FS, or CML EDITION): place it here.
-	modImplementation fileTree(dir: "libs", include: "*.jar")
+	// Select one BBS fork explicitly with -Pbbs_jar=libs/<file>.jar. The
+	// fallback preserves the convenient local-development behavior where the
+	// single enabled jar in libs is used automatically.
+	def selectedBbsJar = providers.gradleProperty("bbs_jar").orNull
+	modImplementation selectedBbsJar != null
+		? files(selectedBbsJar)
+		: fileTree(dir: "libs", include: "*.jar")
 
 	// Model parsing is implemented in Java and uses Gson/JOML already shipped
 	// by Minecraft. No native libraries are bundled in the addon jar.
