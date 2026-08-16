@@ -163,9 +163,80 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
      * of them (or on the forks without the map). Every consumer -- the
      * render push in {@code ModelFormRendererMixin*} and the picker menu in
      * {@code UIModelFormPanelMixin} -- reads the merged result.
+     *
+     * <p>FS also persists static per-material picks separately, in its
+     * {@code ModelForm.materialTextures} ({@code ValueLinks}) -- that's
+     * where FS's own model-panel picker writes (Base/CML use this addon's
+     * ValueString override instead). Those are merged in first, at lower
+     * priority than the film's {@code materialTextureOverrides}, so a
+     * pick made in the model panel applies to every un-animated material
+     * but never fights the film while keyframes are playing.</p>
      */
     @Unique
     private void bbsFbx$mergeNativeOverrides(Map<String, Link> result)
+    {
+        bbsFbx$mergeNativeMaterialTextures(result);
+        bbsFbx$mergeNativeFilmOverrides(result);
+    }
+
+    /**
+     * FS-only static picks from {@code ModelForm.materialTextures}
+     * ({@code ValueLinks}, read via its inherited public {@code get()}).
+     * {@code putIfAbsent}: the film's keyframes (merged afterwards) and the
+     * Base/CML runtime/persisted overrides (merged before) always win.
+     */
+    @Unique
+    private void bbsFbx$mergeNativeMaterialTextures(Map<String, Link> result)
+    {
+        if (bbsFbx$materialTexturesField == null)
+        {
+            try
+            {
+                bbsFbx$materialTexturesField = ModelForm.class.getField("materialTextures");
+            }
+            catch (NoSuchFieldException ignored)
+            {
+                // Base/CML have no native per-material pick map - nothing to merge.
+                return;
+            }
+        }
+
+        try
+        {
+            Object valueLinks = bbsFbx$materialTexturesField.get(this);
+
+            if (valueLinks == null)
+            {
+                return;
+            }
+
+            if (bbsFbx$valueLinksGet == null)
+            {
+                bbsFbx$valueLinksGet = valueLinks.getClass().getMethod("get");
+            }
+
+            Object raw = bbsFbx$valueLinksGet.invoke(valueLinks);
+
+            if (raw instanceof Map<?, ?> picks)
+            {
+                for (Map.Entry<?, ?> entry : picks.entrySet())
+                {
+                    if (entry.getKey() instanceof String material && entry.getValue() instanceof Link link)
+                    {
+                        result.putIfAbsent(material, link);
+                    }
+                }
+            }
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            // Field/method disappeared on this fork - ValueString overrides still apply.
+        }
+    }
+
+    /** FS's film keyframes (native {@code materialTextureOverrides}) - authoritative, merged last. */
+    @Unique
+    private void bbsFbx$mergeNativeFilmOverrides(Map<String, Link> result)
     {
         if (bbsFbx$materialTextureOverridesField == null)
         {
@@ -201,6 +272,12 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
 
     @Unique
     private static Field bbsFbx$materialTextureOverridesField;
+
+    @Unique
+    private static Field bbsFbx$materialTexturesField;
+
+    @Unique
+    private static Method bbsFbx$valueLinksGet;
 
     /**
      * Assigns (or clears, with a null link) this Form's texture override for
