@@ -16,6 +16,7 @@ import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.gl.GlUniform;
 import net.minecraft.client.render.BufferBuilder;
 import net.minecraft.client.render.BufferRenderer;
+import net.minecraft.client.render.BuiltBuffer;
 import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
@@ -399,8 +400,10 @@ public final class LegacyBBRenderer
 
     static void draw(BufferBuilder buffer, Supplier<ShaderProgram> shader)
     {
+        BuiltBuffer built = buffer.endNullable();
+        if (built == null) return;
         RenderSystem.setShader(shader);
-        BufferRenderer.drawWithGlobalProgram(buffer.end());
+        BufferRenderer.drawWithGlobalProgram(built);
     }
 
     static void vertex(
