@@ -9,9 +9,10 @@ import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.util.math.MatrixStack;
 
 import java.util.ArrayList;
-import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.function.Supplier;
 
 /** Builds Blockbuster's texture-alpha voxel shell for limbs marked is3D. */
@@ -23,9 +24,72 @@ final class LegacyBBExtruder
     private static final byte BACK = 8;
     private static final byte LEFT = 16;
     private static final byte RIGHT = 32;
-    private static final Map<LegacyBBModel, Map<String, Mesh>> CACHE = new IdentityHashMap<>();
+
+    /* Weak keys: after a reload the old LegacyBBModel instances become
+     * unreachable and their extruded meshes (the expensive part) are
+     * collected instead of leaking per reload. All access is synchronized
+     * because the loader thread now pre-warms entries that the render
+     * thread reads. */
+    private static final Map<LegacyBBModel, Map<String, Mesh>> CACHE = new WeakHashMap<>();
 
     private LegacyBBExtruder() {}
+
+    /**
+     * Pre-extrudes every is3D limb with the model's default texture. Runs on
+     * the model loader thread right after loading, so the first rendered
+     * frames don't stall the render thread on PNG decoding and voxel
+     * extrusion. Render-time lazy building stays as a fallback for textures
+     * that were not warmed (per-form texture selections).
+     */
+    static void warm(LegacyBBModel model)
+    {
+        Link texture = model.defaultTexture();
+
+        if (texture == null)
+        {
+            return;
+        }
+
+        for (Map.Entry<String, BlockbusterModelLoader.LegacyLimb> entry : model.data.limbs.entrySet())
+        {
+            if (entry.getValue().is3D)
+            {
+                buildCached(model, entry.getKey(), entry.getValue(), texture);
+            }
+        }
+    }
+
+    private static Map<String, Mesh> cacheMeshes(LegacyBBModel model)
+    {
+        synchronized (CACHE)
+        {
+            return CACHE.computeIfAbsent(model, ignored -> new HashMap<>());
+        }
+    }
+
+    /** Build once per (limb, texture); concurrent builds are allowed, the first result wins. */
+    private static Mesh buildCached(LegacyBBModel model, String name, BlockbusterModelLoader.LegacyLimb limb, Link texture)
+    {
+        String key = name + "\n" + texture;
+        Map<String, Mesh> meshes = cacheMeshes(model);
+
+        synchronized (meshes)
+        {
+            if (meshes.containsKey(key))
+            {
+                return meshes.get(key);
+            }
+        }
+
+        Mesh mesh = build(model, limb, texture);
+
+        synchronized (meshes)
+        {
+            meshes.putIfAbsent(key, mesh);
+        }
+
+        return mesh;
+    }
 
     static boolean render(
             LegacyBBModel model, String name, BlockbusterModelLoader.LegacyLimb limb, Link selectedTexture,
@@ -35,15 +99,7 @@ final class LegacyBBExtruder
         Link texture = selectedTexture != null ? selectedTexture : model.defaultTexture();
         if (texture == null) return false;
 
-        String key = name + "\n" + texture;
-        Map<String, Mesh> meshes = CACHE.computeIfAbsent(model, ignored -> new java.util.HashMap<>());
-        Mesh mesh = meshes.get(key);
-
-        if (mesh == null && !meshes.containsKey(key))
-        {
-            mesh = build(model, limb, texture);
-            meshes.put(key, mesh);
-        }
+        Mesh mesh = buildCached(model, name, limb, texture);
 
         if (mesh == null) return false;
 

@@ -105,6 +105,18 @@ public final class BlockbusterModelLoader implements IModelLoader
 
             ModelInstance instance = new ModelInstance(id, runtime, new Animations(models.parser), texture);
 
+            /* Pre-extrude is3D limbs on this (background) loader thread, so
+             * the render thread never stalls on PNG decoding and voxel
+             * extrusion when the model first renders after a reload. */
+            try
+            {
+                LegacyBBExtruder.warm(runtime);
+            }
+            catch (Exception e)
+            {
+                System.err.println("[BBS FBX] Legacy extrusion warm-up failed for " + id + ": " + e.getMessage());
+            }
+
             configureLegacyInstance(instance, legacy);
             instance.applyConfig(config);
 
