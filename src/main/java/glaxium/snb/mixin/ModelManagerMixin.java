@@ -152,6 +152,18 @@ public class ModelManagerMixin
         ModelManager manager = (ModelManager) (Object) this;
         Link link = manager.provider.getLink(path.toFile());
 
+        if (link != null && SceneFormat.fromPath(link.path) != null)
+        {
+            /* Any file event on a scene file invalidates its cached import,
+             * so the next load re-reads and re-parses it. Unchanged files
+             * keep serving from FBXModelLoadCache, which is what makes F6
+             * reloads cheap (stat check only, no file read or re-parse).
+             * The game's own accept() below still removes the live
+             * instance, since isRelodable() covers scene paths. */
+            FBXModelLoadCache.invalidate(link.path);
+            return;
+        }
+
         if (link == null || !BlockbusterModelLoader.isStandaloneCandidatePath(link.path))
         {
             return;
@@ -171,17 +183,6 @@ public class ModelManagerMixin
         }
 
         info.cancel();
-    }
-
-    @Inject(method = "reload", at = @At("HEAD"), remap = false)
-    private void bbsFbx$clearCacheOnReload(CallbackInfo info)
-    {
-        int size = FBXModelLoadCache.size();
-        if (size > 0)
-        {
-            FBXModelLoadCache.clear();
-            BBSFbxAddon.LOGGER.info("Cleared scene model load cache ({} entries) for reload", size);
-        }
     }
 
     /**

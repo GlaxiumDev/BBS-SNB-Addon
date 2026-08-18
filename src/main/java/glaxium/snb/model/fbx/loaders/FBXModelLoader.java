@@ -115,18 +115,10 @@ public class FBXModelLoader implements IModelLoader
 
         try
         {
-            byte[] bytes;
-            try (InputStream stream = models.provider.getAsset(fbxLink))
-            {
-                if (stream == null)
-                {
-                    return null;
-                }
-                bytes = stream.readAllBytes();
-            }
-
-            long contentHash = FBXModelLoadCache.hash(bytes);
-            FBXModelLoadCache.Cached cached = FBXModelLoadCache.get(fbxLink.path, contentHash);
+            /* Reload fast path: unchanged files (same size + mtime) reuse the
+             * cached BOBJData without reading or hashing the file at all. */
+            File sceneFile = models.provider.getFile(fbxLink);
+            FBXModelLoadCache.Cached cached = FBXModelLoadCache.get(fbxLink.path, sceneFile);
 
             BOBJData data;
             Set<String> shapeKeyNames;
@@ -135,29 +127,56 @@ public class FBXModelLoader implements IModelLoader
             {
                 data = cached.data;
                 shapeKeyNames = cached.shapeKeyNames;
-
-                boolean texturesReextracted = ensureTexturesPresent(fbxLink, format, bytes, cached.texturedMaterials, models, model);
-
-                if (texturesReextracted)
-                {
-                    FBXModelLoadCache.invalidate(fbxLink.path);
-                }
             }
             else
             {
-                Set<String> texturedMaterials;
-                JavaScene scene = importScene(fbxLink, format, bytes, models.provider);
+                byte[] bytes;
 
-                if (scene == null)
+                try (InputStream stream = models.provider.getAsset(fbxLink))
                 {
-                    return null;
+                    if (stream == null)
+                    {
+                        return null;
+                    }
+
+                    bytes = stream.readAllBytes();
                 }
 
-                shapeKeyNames = FBXShapeKeyNames.collectShapeKeyNames(scene);
-                data = FBXConverter.convert(scene, format.unitScale());
-                texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+                long contentHash = FBXModelLoadCache.hash(bytes);
 
-                FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames, texturedMaterials);
+                /* Second-chance lookup by content hash: covers jar-served
+                 * assets and files whose mtime changed (or is unreliable)
+                 * but whose content didn't. */
+                cached = FBXModelLoadCache.get(fbxLink.path, contentHash);
+
+                if (cached != null)
+                {
+                    data = cached.data;
+                    shapeKeyNames = cached.shapeKeyNames;
+                }
+                else
+                {
+                    Set<String> texturedMaterials;
+                    JavaScene scene = importScene(fbxLink, format, bytes, models.provider);
+
+                    if (scene == null)
+                    {
+                        return null;
+                    }
+
+                    shapeKeyNames = FBXShapeKeyNames.collectShapeKeyNames(scene);
+                    data = FBXConverter.convert(scene, format.unitScale());
+                    texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
+
+                    FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames, texturedMaterials, sceneFile);
+                }
+            }
+
+            boolean texturesReextracted = ensureTexturesPresent(fbxLink, format, cached != null ? cached.texturedMaterials : null, models, model);
+
+            if (texturesReextracted)
+            {
+                FBXModelLoadCache.invalidate(fbxLink.path);
             }
 
             data.initiateArmatures();
@@ -384,7 +403,7 @@ public class FBXModelLoader implements IModelLoader
      * (folder deleted by the user), re-import purely to rerun texture
      * extraction.
      */
-    private static boolean ensureTexturesPresent(Link link, SceneFormat format, byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
+    private static boolean ensureTexturesPresent(Link link, SceneFormat format, Set<String> texturedMaterials, ModelManager models, Link model)
     {
         if (texturedMaterials == null || texturedMaterials.isEmpty())
         {
@@ -412,6 +431,18 @@ public class FBXModelLoader implements IModelLoader
 
         try
         {
+            byte[] bytes;
+
+            try (InputStream stream = models.provider.getAsset(link))
+            {
+                bytes = stream == null ? null : stream.readAllBytes();
+            }
+
+            if (bytes == null)
+            {
+                return false;
+            }
+
             JavaScene scene = importScene(link, format, bytes, models.provider);
 
             if (scene != null)

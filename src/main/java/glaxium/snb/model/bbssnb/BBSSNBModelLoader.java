@@ -117,7 +117,7 @@ public final class BBSSNBModelLoader implements IModelLoader
                 data = FBXConverter.convert(scene, 1.0F);
                 texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
 
-                FBXModelLoadCache.put(cacheKey, contentHash, data, shapeKeyNames, texturedMaterials);
+                FBXModelLoadCache.put(cacheKey, contentHash, data, shapeKeyNames, texturedMaterials, sourceFile);
             }
 
             data.initiateArmatures();
