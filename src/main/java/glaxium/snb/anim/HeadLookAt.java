@@ -7,6 +7,7 @@ import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.IModelInstance;
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.data.model.ModelGroup;
+import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.utils.MathUtils;
 import mchorse.bbs_mod.utils.interps.Lerps;
@@ -15,8 +16,21 @@ import mchorse.bbs_mod.utils.pose.Transform;
 import org.joml.Vector3f;
 
 /**
- * Head look-at for addon-imported FBX/GLB/glTF only (models carrying
- * {@link IFbxModel} data). Native BOBJ is left entirely to stock BBS.
+ * Head look-at for models animated by the clip {@code Animator}, which
+ * stock BBS never look-ats (only {@code ProceduralAnimator} rotates a bone
+ * named {@code head}). Covers addon-imported FBX/GLB/glTF (models carrying
+ * {@link IFbxModel} data) AND native BOBJ models, so a bone named
+ * {@code head} follows the entity's look on every fork.
+ *
+ * <p>The override must also clear the bone's {@code orient} quaternion:
+ * BBS's {@code BOBJBone.applyTransformations()} prefers {@code orient} over
+ * the euler {@code rotate} triple whenever it is non-null, and the clip
+ * Animator composes it every frame ({@code postApply}). Leaving it set makes
+ * the euler look override silently ignored -- the head freezes even though
+ * the values below are correct. {@code ProceduralAnimator} does exactly the
+ * same clearing for its sneaking pose. Cubic groups get the same treatment
+ * reflectively, because Base 1.7.7's {@code ModelGroup} has no
+ * {@code orient} field.</p>
  *
  * <p>Does not call {@code ModelInstance.getView()} directly — that method
  * exists on BBS 2.4+ but not on BBS 1.7.x (public {@code view} field only).
@@ -40,7 +54,7 @@ public final class HeadLookAt
 
         IModel model = instance.getModel();
 
-        if (model == null || !isImportedArmature(model))
+        if (model == null || !supportsLookAt(model))
         {
             return;
         }
@@ -70,6 +84,14 @@ public final class HeadLookAt
             if (bone != null && boneName.equals(bone.name))
             {
                 applyBobj(bone.transform, yaw, pitch, applyPitch, yawSign, pitchSign);
+
+                /* The clip Animator's postApply composes this bone's orient
+                 * quaternion every frame, and applyTransformations() prefers
+                 * it over the euler triple we just wrote. Clear it so the
+                 * look override is authoritative -- the same trick
+                 * ProceduralAnimator uses for the sneaking pose. */
+                clearOrient(bone);
+
                 return;
             }
         }
@@ -79,6 +101,8 @@ public final class HeadLookAt
             if (group != null && boneName.equals(group.id))
             {
                 applyCubic(group.current, yaw, pitch, applyPitch, yawSign, pitchSign);
+                clearOrient(group);
+
                 return;
             }
         }
@@ -141,10 +165,13 @@ public final class HeadLookAt
         }
     }
 
-    private static boolean isImportedArmature(IModel model)
+    private static boolean supportsLookAt(IModel model)
     {
-        return model instanceof IFbxModel fbx
-            && fbx.bbsFbx$getFbxData() != null;
+        /* Native BOBJ models get the same look-at as imported armatures:
+         * stock BBS only rotates a "head" bone inside ProceduralAnimator,
+         * so clip-animator BOBJ heads never follow the camera without this. */
+        return model instanceof BOBJModel
+            || (model instanceof IFbxModel fbx && fbx.bbsFbx$getFbxData() != null);
     }
 
     private static void applyBobj(Transform transform, float yawDeg, float pitchDeg, boolean applyPitch,
@@ -169,6 +196,37 @@ public final class HeadLookAt
         {
             rotate.x = pitchSign * pitchDeg;
         }
+    }
+
+    /**
+     * Bone equivalent of {@link #clearOrient(ModelGroup)}. Reflective because
+     * the {@code orient} field only exists on forks with the quaternion
+     * composition path (FS, CML); Base 1.7.7 has no such field and honors
+     * the euler triple directly, so a no-op there is the correct behavior.
+     */
+    private static void clearOrient(BOBJBone bone)
+    {
+        try
+        {
+            BOBJBone.class.getField("orient").set(bone, null);
+        }
+        catch (ReflectiveOperationException ignored)
+        {}
+    }
+
+    /**
+     * Cubic equivalent of {@link #clearOrient(BOBJBone)}. Reflective because
+     * Base 1.7.7's {@code ModelGroup} has no {@code orient} field; on forks
+     * that have it, clearing it keeps the euler look override authoritative.
+     */
+    private static void clearOrient(ModelGroup group)
+    {
+        try
+        {
+            group.getClass().getField("orient").set(group, null);
+        }
+        catch (ReflectiveOperationException ignored)
+        {}
     }
 
     private static float clamp(float value, float min, float max)
