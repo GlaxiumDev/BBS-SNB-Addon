@@ -31,6 +31,7 @@
     "FormRendererAccessor",
     "base.ModelFormRendererMixinBase",
     "fs.ModelFormRendererMixinFS",
+    "fs.ModelMeshMixinFS",
     "cml.ModelFormRendererMixinCML",
     "cml.BOBJModelCopyMixin",
     "base.UIReplaysEditorMixinBase",

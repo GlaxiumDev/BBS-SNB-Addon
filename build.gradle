@@ -28,7 +28,10 @@ dependencies {
 
 	// Select one BBS fork explicitly with -Pbbs_jar=libs/<file>.jar. The
 	// fallback preserves the convenient local-development behavior where the
-	// single enabled jar in libs is used automatically.
+	// single enabled jar in libs is used automatically. Fork-specific mixin
+	// sources are written to compile against any fork (FS-only APIs are
+	// reached through reflection and gated by BBSFbxMixinPlugin at runtime),
+	// so switching forks in libs/ never breaks the build.
 	def selectedBbsJar = providers.gradleProperty("bbs_jar").orNull
 	modImplementation selectedBbsJar != null
 		? files(selectedBbsJar)
