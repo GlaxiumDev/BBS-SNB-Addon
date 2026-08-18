@@ -410,14 +410,18 @@ public final class LegacyBBRenderer
     {
         Matrix4f position = matrices.peek().getPositionMatrix();
         Matrix3f normal = matrices.peek().getNormalMatrix();
+        
+        // Transform normal vector by the normal matrix
+        float transformedNx = normal.m00() * nx + normal.m01() * ny + normal.m02() * nz;
+        float transformedNy = normal.m10() * nx + normal.m11() * ny + normal.m12() * nz;
+        float transformedNz = normal.m20() * nx + normal.m21() * ny + normal.m22() * nz;
+        
         buffer.vertex(position, x, y, z)
                 .color(red, green, blue, alpha)
                 .texture(u, v)
                 .overlay(overlay)
                 .light(light)
-                .normal(normal.m00() * nx + normal.m01() * ny + normal.m02() * nz,
-                        normal.m10() * nx + normal.m11() * ny + normal.m12() * nz,
-                        normal.m20() * nx + normal.m21() * ny + normal.m22() * nz);
+                .normal(transformedNx, transformedNy, transformedNz);
     }
 
     private static float[] normal(float[] a, float[] b, float[] c)
