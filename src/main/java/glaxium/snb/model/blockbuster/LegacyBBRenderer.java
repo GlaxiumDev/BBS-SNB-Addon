@@ -365,8 +365,7 @@ public final class LegacyBBRenderer
 
     static BufferBuilder begin(VertexFormat.DrawMode mode)
     {
-        BufferBuilder buffer = Tessellator.getInstance().getBuffer();
-        buffer.begin(mode, VertexFormats.POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL);
+        BufferBuilder buffer = Tessellator.getInstance().begin(mode, VertexFormats.POSITION_COLOR_TEXTURE_OVERLAY_LIGHT_NORMAL);
         return buffer;
     }
 
@@ -416,8 +415,9 @@ public final class LegacyBBRenderer
                 .texture(u, v)
                 .overlay(overlay)
                 .light(light)
-                .normal(normal, nx, ny, nz)
-                .next();
+                .normal(normal.m00() * nx + normal.m01() * ny + normal.m02() * nz,
+                        normal.m10() * nx + normal.m11() * ny + normal.m12() * nz,
+                        normal.m20() * nx + normal.m21() * ny + normal.m22() * nz);
     }
 
     private static float[] normal(float[] a, float[] b, float[] c)

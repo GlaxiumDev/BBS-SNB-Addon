@@ -7,10 +7,12 @@ import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.resources.Link;
 
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.DyedColorComponent;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ArmorItem;
-import net.minecraft.item.DyeableItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.Identifier;
 
 import java.util.ArrayDeque;
@@ -111,7 +113,8 @@ public final class CurrentEmoticonArmor
             return null;
         }
 
-        String material = armor.getMaterial().getName();
+        RegistryEntry<?> materialEntry = armor.getMaterial();
+        String material = materialEntry.getKey().map(key -> key.getValue().toString()).orElse("unknown");
         String namespace = Identifier.DEFAULT_NAMESPACE;
         int colon = material.indexOf(':');
 
@@ -126,7 +129,7 @@ public final class CurrentEmoticonArmor
 
         try
         {
-            textureId = new Identifier(namespace, "textures/models/armor/" + material + "_layer_" + layer + ".png");
+            textureId = Identifier.of(namespace, "textures/models/armor/" + material + "_layer_" + layer + ".png");
         }
         catch (RuntimeException error)
         {
@@ -137,9 +140,10 @@ public final class CurrentEmoticonArmor
         float green = 1F;
         float blue = 1F;
 
-        if (armor instanceof DyeableItem dyeable)
+        DyedColorComponent dyedColor = stack.get(DataComponentTypes.DYED_COLOR);
+        if (dyedColor != null)
         {
-            int color = dyeable.getColor(stack);
+            int color = dyedColor.rgb();
 
             red = ((color >> 16) & 0xff) / 255F;
             green = ((color >> 8) & 0xff) / 255F;
