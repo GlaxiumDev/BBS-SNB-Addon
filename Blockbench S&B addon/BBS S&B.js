@@ -97,7 +97,19 @@
             }
             else if (object.type === "mesh")
             {
-                meshes.push(createMesh(object));
+                var created = createMesh(object);
+
+                if (Array.isArray(created))
+                {
+                    for (var j = 0; j < created.length; j++)
+                    {
+                        meshes.push(created[j]);
+                    }
+                }
+                else
+                {
+                    meshes.push(created);
+                }
             }
         }
 
@@ -114,10 +126,37 @@
         return group;
     }
 
+    /**
+     * Position of a face's texture in Texture.all (the same order the
+     * embedded model.textures array is written out). The primary texture
+     * (index 0) needs no reference in the legacy format; unknown textures
+     * also fall back to 0 so export never fails on a dangling uuid.
+     */
+    function textureIndex(face)
+    {
+        if (!face || typeof face.texture !== "string")
+        {
+            return 0;
+        }
+
+        var all = typeof Texture !== "undefined" ? Texture.all : [];
+
+        for (var i = 0; i < all.length; i++)
+        {
+            if (all[i] && all[i].uuid === face.texture)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
     function createCube(c)
     {
         var cube = {};
         var uvs = {};
+        var textures = {};
 
         cube.origin = c.origin.slice();
         cube.from = c.from.slice();
@@ -148,6 +187,13 @@
 
                 uvs[sides[key]] = uv;
             }
+
+            var index = textureIndex(face);
+
+            if (index > 0)
+            {
+                textures[sides[key]] = index;
+            }
         });
 
         if (Object.keys(uvs).length > 0)
@@ -155,14 +201,173 @@
             cube.uvs = uvs;
         }
 
+        /* Only present when the cube actually uses a non-primary texture;
+         * single-texture output stays byte-identical to the legacy exporter. */
+        if (Object.keys(textures).length > 0)
+        {
+            cube.textures = textures;
+        }
+
         return cube;
+    }
+
+    /**
+     * Material names for the legacy export: each texture that a cube or mesh
+     * actually uses maps to a unique folder name (textures/<name>/default.png
+     * in the game). Names are sanitized and deduplicated with _1, _2 suffixes
+     * so textures that share a name still get separate folders.
+     */
+    var legacyMaterialMap = null;
+
+    function legacyMaterials()
+    {
+        if (legacyMaterialMap)
+        {
+            return legacyMaterialMap;
+        }
+
+        legacyMaterialMap = {};
+        var used = {};
+        var all = typeof Texture !== "undefined" ? Texture.all : [];
+
+        /* Every texture in Texture.all order, so the embedded names and the
+         * mesh materials always agree. Duplicate names get the same
+         * treatment ("default", "default_1", "default_2", ...); generic
+         * names fall back to the texture's source folder. */
+        all.forEach(texture =>
+        {
+            if (!texture || typeof texture.uuid !== "string" || legacyMaterialMap[texture.uuid])
+            {
+                return;
+            }
+
+            var name = texture.name ? texture.name.replace(/[\\/]/g, "_").replace(/\.png$/i, "") : "";
+
+            if ((!name || /^default(?:_\d+)?$/i.test(name)))
+            {
+                var rel = String(texture.path || texture.relative_path || "").replace(/\\/g, "/");
+                var parts = rel.split("/");
+                parts.pop();
+                var dir = parts[parts.length - 1] || "";
+
+                if (/^[a-z0-9._ -]+$/i.test(dir))
+                {
+                    name = dir.replace(/\.[a-z0-9]+$/i, "");
+                }
+            }
+
+            if (!name)
+            {
+                return;
+            }
+
+            var base = name;
+            var candidate = name;
+            var i = 1;
+
+            while (used[candidate])
+            {
+                candidate = base + "_" + i;
+                i++;
+            }
+
+            used[candidate] = true;
+            legacyMaterialMap[texture.uuid] = candidate;
+        });
+
+        return legacyMaterialMap;
+    }
+
+    function legacyMaterialName(uuid)
+    {
+        return legacyMaterials()[uuid] || null;
     }
 
     function createMesh(c)
     {
+        /* Smooth shading comes from the element's own setting, or from the
+         * export dialog's Smooth Shading toggle which forces it for every
+         * mesh in the model (the game applies per-vertex normals when the
+         * file carries them). */
+        var smooth = lastOptions.smoothShading || c.shading === "smooth";
+
+        /* Group faces by texture. Blockbench stores mesh UVs in atlas
+         * space (texture i's tile sits at y in [-32*i, 32-32*i]); each
+         * texture becomes its own sub-mesh with UVs remapped into that
+         * texture's own 0..32 tile space, matching how the game's OBJ
+         * loader splits objects per material. */
+        var faceKeys = {};
+        var order = [];
+        var untextured = [];
+
+        for (var key in c.faces)
+        {
+            var face = c.faces[key];
+            var t = face.texture && typeof face.texture === "string" ? face.texture : null;
+
+            if (t === null)
+            {
+                untextured.push(key);
+                continue;
+            }
+
+            if (!faceKeys[t])
+            {
+                faceKeys[t] = [];
+                order.push(t);
+            }
+
+            faceKeys[t].push(key);
+        }
+
+        if (order.length === 0)
+        {
+            return buildMesh(c, untextured, null);
+        }
+
+        if (untextured.length > 0)
+        {
+            var target = order[0];
+
+            for (var i = 0; i < untextured.length; i++)
+            {
+                faceKeys[target].push(untextured[i]);
+            }
+        }
+
+        var sub = [];
+
+        for (var i = 0; i < order.length; i++)
+        {
+            sub.push(buildMesh(c, faceKeys[order[i]], order[i]));
+        }
+
+        if (sub.length === 1)
+        {
+            return sub[0];
+        }
+
+        var names = order.map(uuid =>
+        {
+            var t = typeof Texture !== "undefined" ? Texture.all.find(t => t && t.uuid === uuid) : null;
+
+            return t && t.name ? t.name : "?";
+        });
+
+        console.log("[BBS S&B] Mesh '" + c.name + "' mixes " + sub.length + " textures; split into per-texture meshes: " + names.join(", ") + ".");
+
+        return sub;
+    }
+
+    function buildMesh(c, keys, textureUuid)
+    {
         var mesh = {};
         var vertices = [];
         var uvs = [];
+        var textureIndexValue = textureUuid ? textureIndex({texture: textureUuid}) : 0;
+        var smooth = lastOptions.smoothShading || c.shading === "smooth";
+        var pushedKeys = [];
+        var smoothAccum = {};
 
         var pushVertexKey = (k, f) =>
         {
@@ -173,7 +378,43 @@
             vertices.push(v[1]);
             vertices.push(v[2]);
             uvs.push(u[0]);
-            uvs.push(u[1]);
+            uvs.push(u[1] + 32 * textureIndexValue);
+
+            pushedKeys.push(k);
+        };
+
+        var faceNormal = (keys) =>
+        {
+            var v0 = c.vertices[keys[0]];
+            var a = c.vertices[keys[1]];
+            var b = c.vertices[keys[2]];
+            var ax = a[0] - v0[0], ay = a[1] - v0[1], az = a[2] - v0[2];
+            var bx = b[0] - v0[0], by = b[1] - v0[1], bz = b[2] - v0[2];
+            var nx = ay * bz - az * by;
+            var ny = az * bx - ax * bz;
+            var nz = ax * by - ay * bx;
+            var length = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+
+            return [nx / length, ny / length, nz / length];
+        };
+
+        var pushTriangles = (keys, face) =>
+        {
+            var normal = smooth ? faceNormal(keys) : null;
+
+            for (var i = 0; i < keys.length; i++)
+            {
+                pushVertexKey(keys[i], face);
+
+                if (smooth)
+                {
+                    var acc = smoothAccum[keys[i]] || (smoothAccum[keys[i]] = [0, 0, 0]);
+
+                    acc[0] += normal[0];
+                    acc[1] += normal[1];
+                    acc[2] += normal[2];
+                }
+            }
         };
 
         mesh.origin = c.origin.slice();
@@ -183,35 +424,66 @@
             mesh.rotate = c.rotation.slice();
         }
 
-        for (var key in c.faces)
+        for (var i = 0; i < keys.length; i++)
         {
-            var face = c.faces[key];
+            var face = c.faces[keys[i]];
             var vertexKeys = face.vertices;
 
             if (vertexKeys.length == 3)
             {
-                for (var i = 0; i < vertexKeys.length; i++)
-                {
-                    pushVertexKey(vertexKeys[i], face);
-                }
+                pushTriangles(vertexKeys, face);
             }
             else if (vertexKeys.length == 4)
             {
                 /* Triangulate a quad */
                 var sorted = face.getSortedVertices();
-                
-                pushVertexKey(sorted[0], face);
-                pushVertexKey(sorted[1], face);
-                pushVertexKey(sorted[2], face);
 
-                pushVertexKey(sorted[0], face);
-                pushVertexKey(sorted[2], face);
-                pushVertexKey(sorted[3], face);
+                pushTriangles([sorted[0], sorted[1], sorted[2]], face);
+                pushTriangles([sorted[0], sorted[2], sorted[3]], face);
             }
         }
 
         mesh.vertices = vertices;
         mesh.uvs = uvs;
+
+        /* Materials drive per-part textures in BBS, mirroring the FBX/glTF
+         * convention (textures/<material>/default.png). Every mesh whose
+         * faces share a single texture gets its material - texture index 0
+         * included, so models textured on the first texture slot don't fall
+         * back to model.png. */
+        if (textureUuid)
+        {
+            var material = legacyMaterialName(textureUuid);
+
+            if (material)
+            {
+                mesh.material = material;
+
+                if (textureIndexValue > 0)
+                {
+                    mesh.texture = textureIndexValue;
+                }
+            }
+        }
+
+        /* Smooth-shaded meshes carry per-vertex normals (averaged across
+         * the mesh's triangles); Blockbench cubes are never smoothed. */
+        if (smooth)
+        {
+            var normals = [];
+
+            for (var i = 0; i < pushedKeys.length; i++)
+            {
+                var acc = smoothAccum[pushedKeys[i]];
+                var length = Math.sqrt(acc[0] * acc[0] + acc[1] * acc[1] + acc[2] * acc[2]) || 1;
+
+                normals.push(acc[0] / length);
+                normals.push(acc[1] / length);
+                normals.push(acc[2] / length);
+            }
+
+            mesh.normals = normals;
+        }
 
         return mesh;
     }
@@ -334,14 +606,230 @@
     }
 
     /**
+     * Whether the current project actually contains a real Blockbench 5
+     * Armature (i.e. the user built a rig on purpose). Plain Group/Cube/Mesh
+     * hierarchies -- the traditional Java/Bedrock-style models -- have none,
+     * and should be exported as their own group/mesh nodes, not force-baked
+     * into a single skinned mesh.
+     */
+    function hasArmatureElements()
+    {
+        if (typeof Armature !== "undefined" && Array.isArray(Armature.all))
+        {
+            return Armature.all.length > 0;
+        }
+
+        function scan(nodes)
+        {
+            for (let i = 0; i < (nodes || []).length; i++)
+            {
+                var node = nodes[i];
+
+                if (node && node.type === "armature")
+                {
+                    return true;
+                }
+
+                if (node && Array.isArray(node.children) && scan(node.children))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return scan(typeof Outliner !== "undefined" ? Outliner.root : []);
+    }
+
+    /**
+     * Non-armature projects export through the legacy BBS exporter format
+     * (the original BBS Ex/importer plugin, "0.7.2"): one group per outliner
+     * group with cubes/meshes, a single texture size and plain keyframe
+     * animations.  Importing such a file restores the exact group hierarchy,
+     * so exporting and importing a non-armature model round-trips cleanly
+     * (no meshes dumped at the outliner root, no duplicate "_1" names).
+     *
+     * Multi-texture models keep per-face UVs from each cube's own texture,
+     * plus a per-cube/per-mesh texture index extension (cube.textures /
+     * mesh.texture) pointing into the textures stored alongside the file;
+     * single-texture output stays byte-identical to the legacy exporter.
+     */
+    function compileLegacy()
+    {
+        legacyMaterialMap = null;
+
+        function findTextureSize()
+        {
+            var c = Cube.all;
+            var keys = Object.keys(sides);
+
+            for (var i = 0; i < c.length; i++)
+            {
+                var cube = c[i];
+
+                for (var j = 0; j < keys.length; j++)
+                {
+                    var face = cube.faces[keys[j]];
+
+                    if (face)
+                    {
+                        var textureUuid = face.texture;
+
+                        for (var k = 0; k < Texture.all.length; k++)
+                        {
+                            var texture = Texture.all[k];
+
+                            if (texture && texture.uuid == textureUuid)
+                            {
+                                return [texture.uv_width, texture.uv_height];
+                            }
+                        }
+                    }
+                }
+            }
+
+            /* Mesh-only projects have no cubes to sample; fall back to the
+             * first mesh face's texture size. */
+            if (typeof Mesh !== "undefined" && Array.isArray(Mesh.all))
+            {
+                for (var i = 0; i < Mesh.all.length; i++)
+                {
+                    var mesh = Mesh.all[i];
+
+                    for (var key in mesh.faces)
+                    {
+                        var face = mesh.faces[key];
+                        var textureUuid = face && face.texture;
+
+                        for (var k = 0; k < Texture.all.length; k++)
+                        {
+                            var texture = Texture.all[k];
+
+                            if (texture && texture.uuid == textureUuid)
+                            {
+                                return [texture.uv_width, texture.uv_height];
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        var output = {
+            version: "0.7.2",
+            animations: {}
+        };
+
+        /* Embedded textures, mirroring the armature (S&B) path: the game
+         * extracts them into the model folder on load (model.png for the
+         * primary, textures/<material>/default.png for the rest), so a
+         * single .bbs.json carries the whole model. Kept in Texture.all
+         * order so the texture indices used by cube.textures / mesh.texture
+         * stay aligned on import. */
+        var embeddedTextures = [];
+
+        if (typeof Texture !== "undefined")
+        {
+            Texture.all.forEach((t) =>
+            {
+                if (t.error || !t.name)
+                {
+                    return;
+                }
+
+                /* Same mechanism as Blockbench's built-in glTF exporter
+                 * (the armature path): the texture's canvas holds the
+                 * loaded image no matter how the texture was linked
+                 * (external file, blob URL, ...), where the source string
+                 * may be empty or unusable. */
+                var source = null;
+
+                if (typeof t.source === "string" && t.source.startsWith("data:"))
+                {
+                    source = t.source;
+                }
+                else if (t.canvas && typeof t.canvas.toDataURL === "function"
+                        && (t.canvas.width > 16 || !(t.width > 16)))
+                {
+                    source = t.canvas.toDataURL("image/png");
+                }
+                else if (t.source && typeof t.source.toDataURL === "function")
+                {
+                    source = t.source.toDataURL("image/png");
+                }
+
+                if (!source)
+                {
+                    return;
+                }
+
+                var name = legacyMaterialName(t.uuid)
+                        || (t.name.endsWith(".png") ? t.name : t.name + ".png").replace(/[\\/]/g, "_");
+
+                embeddedTextures.push({name: name, source: source});
+            });
+
+            if (embeddedTextures.length > 0)
+            {
+                output.textures = embeddedTextures;
+                console.log("[BBS S&B] Embedded " + embeddedTextures.length + " texture(s): " + embeddedTextures.map(t => t.name).join(", "));
+            }
+            else
+            {
+                console.warn("[BBS S&B] No textures embedded - no data: URLs available in Texture.all");
+            }
+        }
+
+        if (lastOptions.model)
+        {
+            var texture = [Project.texture_width, Project.texture_height];
+            var textureSize = findTextureSize();
+
+            if (textureSize)
+            {
+                texture = textureSize;
+            }
+
+            output.model = {
+                groups: createHierarchy(Outliner.root),
+                texture: texture
+            };
+        }
+
+        if (lastOptions.animations)
+        {
+            Animation.all.forEach(animation =>
+            {
+                output.animations[animation.name] = createAnimation(animation);
+            });
+        }
+
+        return output;
+    }
+
+    /**
      * Compile through Blockbench's own glTF 2.0 exporter.  This is important:
      * the built-in exporter is the canonical implementation of Blockbench 5's
      * Armature, ArmatureBone, vertex-weight, bind-matrix and sampled-animation
      * APIs.  Keeping its scene intact means BBS S&B gets every one of those
      * features without maintaining a second, subtly different skinning path.
+     *
+     * The `armature` flag is only turned on when the project actually has a
+     * real Armature rig. Projects without one are handled by
+     * {@link compileLegacy} above, which reproduces the original BBS
+     * exporter's format so non-armature models round-trip with their group
+     * hierarchy intact.
      */
     async function compile()
     {
+        if (!hasArmatureElements())
+        {
+            return compileLegacy();
+        }
+
         var codecs = typeof Codecs !== "undefined" ? Codecs : window.Codecs;
         var gltfCodec = codecs && codecs.gltf;
 
@@ -405,7 +893,15 @@
             },
             settings: {
                 smooth_shading: !!lastOptions.smoothShading,
-                export_scale: exportScale
+                export_scale: exportScale,
+                armature: true
+            },
+            /* Editor-only hints. Blockbench's glTF exporter writes UVs in the
+             * glTF convention (origin top-left, V down), which is exactly what
+             * Blockbench meshes use, so imports must NOT flip V. Runtime BBS
+             * ignores this object. */
+            editor_import: {
+                flip_uv_v: true
             },
             scene: scene
         };
@@ -830,7 +1326,14 @@
          * behavior. This prevents one Blender model's axis/UV quirks from
          * changing every OBJ/BOBJ/FBX/glTF/S&B model. */
         var editorImport = json.editor_import || {};
-        var flipUvV = editorImport.flip_uv_v === true;
+        /* Blockbench's glTF exporter (used for every BBS S&B export) writes
+         * UVs in the glTF convention -- origin top-left, V down -- which is
+         * exactly what Blockbench meshes use, so V must NOT be flipped on
+         * import. The flip below applies only to packages that were not
+         * exported by this plugin (Blender/OBJ converted glTF, whose V axis
+         * is inverted), or when flip_uv_v is explicitly set to false. */
+        var ownExport = json.exporter && json.exporter.name === "BBS S&B";
+        var flipUvV = editorImport.flip_uv_v === true || (ownExport && editorImport.flip_uv_v !== false);
         var boneAxisCorrections = editorImport.bone_axis_corrections || {};
         var hasBoneAxisCorrections = Object.keys(boneAxisCorrections).length > 0;
         var shading = json.settings && json.settings.smooth_shading ? "smooth" : "flat";
@@ -1273,6 +1776,29 @@
 
         try
         {
+            if (Array.isArray(json.textures) && typeof Texture !== "undefined")
+            {
+                json.textures.forEach(t =>
+                {
+                    if (!t || typeof t.source !== "string" || !t.source.startsWith("data:"))
+                    {
+                        return;
+                    }
+
+                    var bytes = decodeDataUri(t.source);
+                    var size = imageDimensions(bytes, "image/png");
+
+                    new Texture({
+                        name: t.name,
+                        source: t.source,
+                        internal: true,
+                        saved: false,
+                        uv_width: size[0],
+                        uv_height: size[1]
+                    });
+                });
+            }
+
             if (json.model) importModel(json.model);
             if (json.animations) importAnimations(json.animations);
         }
@@ -1403,6 +1929,20 @@
             }
         });
 
+        if (cubeObject.textures)
+        {
+            Object.keys(cubeObject.textures).forEach(key =>
+            {
+                var face = cube.faces[sidesInverse[key]];
+                var texture = typeof Texture !== "undefined" ? Texture.all[cubeObject.textures[key]] : null;
+
+                if (face && texture)
+                {
+                    face.texture = texture.uuid;
+                }
+            });
+        }
+
         cube.init();
         cube.addTo(group);
     }
@@ -1411,6 +1951,33 @@
     {
         var vertices = {};
         var faces = {};
+
+        /* Material names come first: they survive importing into a project
+         * whose Texture.all already holds the same textures (embedded
+         * textures appended later would shift the raw indices). The index
+         * extension is the fallback for files without materials. */
+        var textureIndexValue = -1;
+
+        if (typeof meshObject.material === "string")
+        {
+            var byName = typeof Texture !== "undefined" ? Texture.all.find(t => t && t.name === meshObject.material) : null;
+
+            if (byName)
+            {
+                for (var i = 0; i < Texture.all.length; i++)
+                {
+                    if (Texture.all[i] === byName)
+                    {
+                        textureIndexValue = i;
+                        break;
+                    }
+                }
+            }
+        }
+        else if (typeof meshObject.texture === "number")
+        {
+            textureIndexValue = meshObject.texture;
+        }
 
         for (var i = 0, c = meshObject.vertices.length / 9; i < c; i++)
         {
@@ -1442,9 +2009,15 @@
                 vertices: [key1, key2, key3]
             };
 
-            face.uv[key1] = [meshObject.uvs[i * 6], meshObject.uvs[i * 6 + 1]];
-            face.uv[key2] = [meshObject.uvs[i * 6 + 2], meshObject.uvs[i * 6 + 3]];
-            face.uv[key3] = [meshObject.uvs[i * 6 + 4], meshObject.uvs[i * 6 + 5]];
+            /* The file stores UVs in the texture's own 0..32 tile space;
+             * Blockbench's mesh UV atlas stacks texture i at y in
+             * [-32*i, 32-32*i], so shift the imported UVs back into atlas
+             * space or the faces would sit on the wrong tile. */
+            var uvOffset = textureIndexValue > 0 ? 32 * textureIndexValue : 0;
+
+            face.uv[key1] = [meshObject.uvs[i * 6], meshObject.uvs[i * 6 + 1] + uvOffset];
+            face.uv[key2] = [meshObject.uvs[i * 6 + 2], meshObject.uvs[i * 6 + 3] + uvOffset];
+            face.uv[key3] = [meshObject.uvs[i * 6 + 4], meshObject.uvs[i * 6 + 5] + uvOffset];
 
             faces[bbuid(6)] = face;
         }
@@ -1453,8 +2026,19 @@
             origin: meshObject.origin || [0, 0, 0],
             rotation: meshObject.rotate || [0, 0, 0],
             vertices: vertices,
-            faces: faces
+            faces: faces,
+            shading: meshObject.normals ? "smooth" : "flat"
         });
+
+        if (textureIndexValue >= 0)
+        {
+            var texture = typeof Texture !== "undefined" ? Texture.all[textureIndexValue] : null;
+
+            if (texture)
+            {
+                Object.keys(faces).forEach(faceKey => faces[faceKey].texture = texture.uuid);
+            }
+        }
 
         mesh.init();
         mesh.addTo(group);
@@ -1550,7 +2134,7 @@
             },
             exportAsFolder: {
                 label: "Export to folder",
-                description: "Write model.bbs.json to a chosen folder. Textures are embedded in the model file.",
+                description: "Write model.bbs.json to a chosen folder. Textures are stored in the folder; BBS extracts them from there if present.",
                 type: "checkbox",
                 value: false
             }
@@ -1572,10 +2156,135 @@
 
                     if (folder)
                     {
+                        var content = await compileText();
+                        var parsed = typeof content === "string" ? JSON.parse(content) : content;
+
                         Blockbench.writeFile(PathModule.join(folder, "model.bbs.json"), {
-                            content: await compileText(),
+                            content: content,
                             savetype: "text"
                         });
+
+                        if (parsed && parsed.format === "bbs_snb")
+                        {
+                            /* Armature models: store the textures in the
+                             * folder; BBS uses them from textures/<name>/
+                             * default.png when present. */
+                            Texture.all.forEach((t) =>
+                            {
+                                if (t.error || !t.name)
+                                {
+                                    return;
+                                }
+
+                                var name = t.name.replace(/[\\/]/g, "_");
+                                var source = t.source;
+
+                                if (typeof source === "string" && source.startsWith("data:"))
+                                {
+                                    Blockbench.writeFile(PathModule.join(folder, "textures", name, "default.png"), {
+                                        content: source,
+                                        savetype: "image"
+                                    });
+                                }
+                                else if (source && typeof source.toDataURL === "function")
+                                {
+                                    Blockbench.writeFile(PathModule.join(folder, "textures", name, "default.png"), {
+                                        content: source.toDataURL("image/png"),
+                                        savetype: "image"
+                                    });
+                                }
+                            });
+                        }
+                        else
+                        {
+                            /* Legacy models: store the primary texture as
+                             * model.png (the model's default) and every other
+                             * used texture in its material folder so the game
+                             * can render each mesh with its own texture. */
+                            var materialUuids = {};
+
+                            if (parsed && parsed.model)
+                            {
+                                Object.keys(parsed.model.groups).forEach(groupKey =>
+                                {
+                                    var group = parsed.model.groups[groupKey];
+
+                                    (group.meshes || []).forEach(mesh =>
+                                    {
+                                        if (typeof mesh.material === "string")
+                                        {
+                                            Object.keys(legacyMaterials()).forEach(uuid =>
+                                            {
+                                                if (legacyMaterials()[uuid] === mesh.material)
+                                                {
+                                                    materialUuids[uuid] = mesh.material;
+                                                }
+                                            });
+                                        }
+                                    });
+                                });
+                            }
+
+                            var sourceOf = (t) =>
+                            {
+                                if (typeof t.source === "string" && t.source.startsWith("data:"))
+                                {
+                                    return t.source;
+                                }
+
+                                /* Texture canvases hold the loaded image for
+                                 * every linking mode (external files, blob
+                                 * URLs, ...); the glTF exporter reads from
+                                 * them the same way. */
+                                if (t.canvas && typeof t.canvas.toDataURL === "function"
+                                        && (t.canvas.width > 16 || !(t.width > 16)))
+                                {
+                                    return t.canvas.toDataURL("image/png");
+                                }
+
+                                if (t.source && typeof t.source.toDataURL === "function")
+                                {
+                                    return t.source.toDataURL("image/png");
+                                }
+
+                                return null;
+                            };
+
+                            Texture.all.forEach((t, index) =>
+                            {
+                                if (t.error)
+                                {
+                                    return;
+                                }
+
+                                var source = sourceOf(t);
+
+                                if (!source)
+                                {
+                                    return;
+                                }
+
+                                if (index === 0)
+                                {
+                                    Blockbench.writeFile(PathModule.join(folder, "model.png"), {
+                                        content: source,
+                                        savetype: 'image'
+                                    });
+
+                                    return;
+                                }
+
+                                var material = materialUuids[t.uuid];
+
+                                if (material)
+                                {
+                                    Blockbench.writeFile(PathModule.join(folder, "textures", material, "default.png"), {
+                                        content: source,
+                                        savetype: 'image'
+                                    });
+                                }
+                            });
+                        }
                     }
                 }
                 else if (formData.copyToBuffer)
@@ -1604,9 +2313,9 @@
     Plugin.register("BBS S&B", {
         title: "BBS S&B",
         author: "glaxium",
-        description: "Import and export BBS S&B models with armatures, weight paint, animations, embedded textures and optional smooth shading.",
+        description: "Import and export BBS S&B models. Armature projects use the S&B glTF format; non-armature projects export like the original BBS exporter, restoring the group hierarchy on import. Multi-texture (per-mesh materials), smooth shading and folder export supported.",
         icon: "fa-cubes",
-        version: "2.1.3",
+        version: "2.4.1",
         min_version: "5.0.0",
         variant: "both",
         has_changelog: false,
