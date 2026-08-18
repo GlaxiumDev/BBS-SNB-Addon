@@ -15,3 +15,7 @@
 
 .ref-BBS-CML/
 /tools/
+
+# Personal mod management scripts (local only)
+manage-mods.sh
+MOD_MANAGEMENT.md
