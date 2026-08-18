@@ -37,21 +37,19 @@ dependencies {
 
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	// The BBS jar you're building against (Base, FS, or CML EDITION): place it here.
-	modImplementation fileTree(dir: "libs", include: "*.jar")
+	// Select one BBS fork explicitly with -Pbbs_jar=libs/<file>.jar. The
+	// fallback preserves the convenient local-development behavior where the
+	// single enabled jar in libs is used automatically. Fork-specific mixin
+	// sources are written to compile against any fork (FS-only APIs are
+	// reached through reflection and gated by BBSFbxMixinPlugin at runtime),
+	// so switching forks in libs/ never breaks the build.
+	def selectedBbsJar = providers.gradleProperty("bbs_jar").orNull
+	modImplementation selectedBbsJar != null
+		? files(selectedBbsJar)
+		: fileTree(dir: "libs", include: "*.jar")
 
-	// Assimp (LWJGL 3.3.1, matching Minecraft 1.20.1). Almost the entire jar
-	// weight is these native binaries (~3-4 MB each); the Java addon itself is
-	// a few hundred KB. Windows ARM is omitted -- almost no Minecraft players
-	// use it, and dropping it saves ~2.7 MB. Keep windows/linux/macos(+arm64)
-	// so a single jar still runs on the platforms that matter.
-	// Note: Assimp format importers are compiled into the native libs; they
-	// cannot be stripped from the stock LWJGL Assimp jars without a custom build.
-	implementation(include("org.lwjgl:lwjgl-assimp:3.3.1"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.1:natives-windows"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.1:natives-linux"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.1:natives-macos"))
-	runtimeOnly(include("org.lwjgl:lwjgl-assimp:3.3.1:natives-macos-arm64"))
+	// Model parsing is implemented in Java and uses Gson/JOML already shipped
+	// by Minecraft. No native libraries are bundled in the addon jar.
 }
 
 processResources {
@@ -77,6 +75,8 @@ jar {
 	from("LICENSE.md") {
 		rename { "${it}_${project.base.archivesName.get()}"}
 	}
+
+	from("THIRD_PARTY_NOTICES.md")
 }
 
 publishing {

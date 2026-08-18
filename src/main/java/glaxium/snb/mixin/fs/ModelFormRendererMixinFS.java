@@ -3,6 +3,9 @@ package glaxium.snb.mixin.fs;
 import glaxium.snb.model.fbx.loaders.IFormMaterialTextureHolder;
 import glaxium.snb.mixin.FormRendererAccessor;
 import glaxium.snb.render.CurrentMaterialTextureOverrides;
+import glaxium.snb.render.CurrentEmoticonArmor;
+import glaxium.snb.render.CurrentModelTexture;
+import glaxium.snb.compat.ModelInstanceCompat;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -38,29 +41,34 @@ public abstract class ModelFormRendererMixinFS
     @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
     private void bbsFbx$pushMaterialOverrides(
             IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
-            int light, int overlay, Color color, Color ambient, boolean ui, boolean renderEquipment,
+            int light, int overlay, Color color, Color ambient, boolean additive, boolean ui,
             StencilMap stencilMap, float transition, MatrixStack poseStack,
             CallbackInfo info)
     {
+        CurrentEmoticonArmor.push(target, model, !ui);
         Form form = ((FormRendererAccessor) (Object) this).bbsFbx$getForm();
 
         if (form instanceof ModelForm modelForm)
         {
             CurrentMaterialTextureOverrides.push(((IFormMaterialTextureHolder) modelForm).bbsFbx$getMaterialTextureOverrides());
+            CurrentModelTexture.push(modelForm.texture.get() == null ? ModelInstanceCompat.getTexture(model) : modelForm.texture.get());
         }
         else
         {
             CurrentMaterialTextureOverrides.push(null);
+            CurrentModelTexture.push(ModelInstanceCompat.getTexture(model));
         }
     }
 
     @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
     private void bbsFbx$popMaterialOverrides(
             IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
-            int light, int overlay, Color color, Color ambient, boolean ui, boolean renderEquipment,
+            int light, int overlay, Color color, Color ambient, boolean additive, boolean ui,
             StencilMap stencilMap, float transition, MatrixStack poseStack,
             CallbackInfo info)
     {
         CurrentMaterialTextureOverrides.pop();
+        CurrentModelTexture.pop();
+        CurrentEmoticonArmor.pop();
     }
 }

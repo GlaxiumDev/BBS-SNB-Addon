@@ -12,9 +12,10 @@ import java.util.Collection;
 import java.util.Map;
 
 /**
- * Makes {@link ModelManager#models} safe under {@link ModelLoaderMixinBaseFS}'s
- * worker pool, and makes {@code reload()} snapshot+clear the map under the
- * same lock so workers cannot corrupt the plain {@code HashMap} mid-reload.
+ * <b>Parked — not registered in {@code bbs_snb_addon.mixins.json}.</b>
+ * Only needed alongside {@link ModelLoaderMixinBaseFS}; that parallel loader
+ * is disabled because concurrent model loads plus an unsynchronized
+ * {@code reload()} froze Linux desktops. See that class's doc for details.
  *
  * <p>Gated to Base/FS only (CML already uses {@code ConcurrentHashMap}).</p>
  */

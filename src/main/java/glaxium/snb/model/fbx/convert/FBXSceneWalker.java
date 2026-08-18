@@ -1,15 +1,13 @@
 package glaxium.snb.model.fbx.convert;
 
+import glaxium.snb.model.fbx.scene.JavaScene;
 import org.joml.Matrix4f;
-import org.lwjgl.PointerBuffer;
-import org.lwjgl.assimp.AINode;
 
-import java.nio.IntBuffer;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Reads the raw Assimp node tree in a single traversal: per-mesh world
+ * Reads the format-neutral node tree in a single traversal: per-mesh world
  * transforms, which node each mesh belongs to, each node's parent name, and
  * every node's local (relative-to-parent) transform. Does no BOBJ
  * construction — see {@link FBXArmatureBuilder} for turning this into bones.
@@ -35,40 +33,31 @@ public final class FBXSceneWalker
      *                            the same way {@code meshTransforms} lets it
      *                            turn mesh-owning nodes into bones.
      */
-    public static Map<Integer, Matrix4f> collectMeshTransforms(AINode rootNode, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
+    public static Map<Integer, Matrix4f> collectMeshTransforms(JavaScene.Node rootNode, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
     {
         Map<Integer, Matrix4f> meshTransforms = new HashMap<>();
         collectMeshTransforms(rootNode, new Matrix4f(), meshTransforms, meshNodeNames, nodeParents, nodeLocals, nodeWorldTransforms);
         return meshTransforms;
     }
 
-    private static void collectMeshTransforms(AINode node, Matrix4f parentGlobal, Map<Integer, Matrix4f> meshTransforms, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
+    private static void collectMeshTransforms(JavaScene.Node node, Matrix4f parentGlobal, Map<Integer, Matrix4f> meshTransforms, Map<Integer, String> meshNodeNames, Map<String, String> nodeParents, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
     {
-        Matrix4f local = FBXMath.toMatrix4f(node.mTransformation());
+        Matrix4f local = new Matrix4f(node.transform);
         Matrix4f global = new Matrix4f(parentGlobal).mul(local);
 
-        String nodeName = node.mName().dataString();
+        String nodeName = node.name;
         nodeLocals.put(nodeName, local);
         nodeWorldTransforms.put(nodeName, new Matrix4f(global));
 
-        IntBuffer meshIndices = node.mMeshes();
-        int numMeshes = node.mNumMeshes();
-        if (meshIndices != null)
+        for (int meshIndex : node.meshes)
         {
-            for (int i = 0; i < numMeshes; i++)
-            {
-                int meshIndex = meshIndices.get(i);
-                meshTransforms.putIfAbsent(meshIndex, new Matrix4f(global));
-                meshNodeNames.putIfAbsent(meshIndex, nodeName);
-            }
+            meshTransforms.putIfAbsent(meshIndex, new Matrix4f(global));
+            meshNodeNames.putIfAbsent(meshIndex, nodeName);
         }
 
-        PointerBuffer children = node.mChildren();
-        int numChildren = node.mNumChildren();
-        for (int i = 0; i < numChildren; i++)
+        for (JavaScene.Node child : node.children)
         {
-            AINode child = AINode.create(children.get(i));
-            String childName = child.mName().dataString();
+            String childName = child.name;
             // Skip synthetic roots so top-level objects stay parentless.
             String parentForChild = (nodeName.equals("RootNode") || nodeName.equals("Armature")) ? "" : nodeName;
             nodeParents.putIfAbsent(childName, parentForChild);

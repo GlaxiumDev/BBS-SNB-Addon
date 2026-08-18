@@ -1,10 +1,14 @@
 package glaxium.snb.mixin.fs;
 
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
 import glaxium.snb.model.fbx.loaders.IMaterialTextureHolder;
+import glaxium.snb.model.fbx.loaders.IModelMaterialTextures;
 import glaxium.snb.model.fbx.loaders.IShapeKeyHolder;
 import glaxium.snb.render.MaterialTextureDelegate;
+import glaxium.snb.model.blockbuster.LegacyBBModel;
+import glaxium.snb.model.blockbuster.LegacyBBRenderer;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -68,6 +72,19 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
     @Shadow public List<String> materials;
     @Shadow public Map<String, Link> materialTextures;
 
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
+    private void bbsFbx$renderLegacyBB(
+            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
+            int light, int overlay, StencilMap stencilMap, ShapeKeys keys,
+            Function<String, Link> textureResolver, CallbackInfo ci)
+    {
+        if (this.model instanceof LegacyBBModel legacy)
+        {
+            LegacyBBRenderer.render(legacy, stack, program, color, light, overlay, stencilMap);
+            ci.cancel();
+        }
+    }
+
     /**
      * Fills {@code materials}/{@code materialTextures} from the FBX data the
      * way {@code BOBJModelLoader} fills them from {@code BOBJData.meshes}.
@@ -79,30 +96,59 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
     @Inject(method = "<init>", at = @At("RETURN"), remap = false)
     private void bbsFbx$seedFbxMaterials(CallbackInfo info)
     {
-        if (!(this.model instanceof IFbxModel fbxModel))
+        List<String> names = null;
+        Link[] defaults = null;
+
+        if (this.model instanceof IFbxModel fbxModel)
         {
-            return;
-        }
+            FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
 
-        FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
-
-        if (data == null || data.materialNames == null || data.materialNames.length == 0)
-        {
-            return;
-        }
-
-        this.materials.addAll(List.of(data.materialNames));
-
-        if (data.materialTextures != null)
-        {
-            for (int i = 0; i < data.materialNames.length && i < data.materialTextures.length; i++)
+            if (data != null && data.materialNames != null && data.materialNames.length > 0)
             {
-                Link texture = data.materialTextures[i];
+                names = List.of(data.materialNames);
+                defaults = data.materialTextures;
+            }
+        }
+        else if (this.model instanceof IModelMaterialTextures cubic)
+        {
+            names = cubic.bbsFbx$getMaterials();
+        }
 
-                if (texture != null)
-                {
-                    this.materialTextures.put(data.materialNames[i], texture);
-                }
+        if (names == null || names.isEmpty())
+        {
+            return;
+        }
+
+        for (String name : names)
+        {
+            /* Armor sidecar shells are equipped-state geometry, never
+             * selectable/animated materials -- keep them out of the list
+             * FS's picker and film-editor material sheets iterate. */
+            if (EmoticonArmorSidecar.isArmorMesh(name))
+            {
+                continue;
+            }
+
+            if (!this.materials.contains(name))
+            {
+                this.materials.add(name);
+            }
+        }
+
+        for (int i = 0; i < names.size(); i++)
+        {
+            if (EmoticonArmorSidecar.isArmorMesh(names.get(i)))
+            {
+                continue;
+            }
+
+            Link texture = defaults != null && i < defaults.length
+                    ? defaults[i]
+                    : MaterialTextureDelegate.getDefaultMaterialTexture(this.model, names.get(i));
+
+            if (texture != null)
+            {
+                this.materialTextures.put(names.get(i), texture);
             }
         }
     }

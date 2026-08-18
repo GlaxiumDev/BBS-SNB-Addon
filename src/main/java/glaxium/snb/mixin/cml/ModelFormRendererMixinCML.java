@@ -4,6 +4,9 @@ import glaxium.snb.model.fbx.loaders.IFormMaterialTextureHolder;
 import glaxium.snb.mixin.FormRendererAccessor;
 import glaxium.snb.render.CurrentMaterialPbrOverrides;
 import glaxium.snb.render.CurrentMaterialTextureOverrides;
+import glaxium.snb.render.CurrentEmoticonArmor;
+import glaxium.snb.render.CurrentModelTexture;
+import glaxium.snb.compat.ModelInstanceCompat;
 import glaxium.snb.render.MaterialPbrIntensity;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -48,6 +51,7 @@ public abstract class ModelFormRendererMixinCML
             int light, int overlay, Color color, boolean ui, StencilMap stencilMap, float transition,
             boolean renderEquipment, CallbackInfo info)
     {
+        CurrentEmoticonArmor.push(target, model, renderEquipment && !ui);
         Form form = ((FormRendererAccessor) (Object) this).bbsFbx$getForm();
 
         if (form instanceof ModelForm modelForm)
@@ -56,11 +60,13 @@ public abstract class ModelFormRendererMixinCML
 
             CurrentMaterialTextureOverrides.push(holder.bbsFbx$getMaterialTextureOverrides());
             CurrentMaterialPbrOverrides.push(holder.bbsFbx$getMaterialPbrOverrides(), bbsFbx$formPbrIntensity(modelForm));
+            CurrentModelTexture.push(modelForm.texture.get() == null ? ModelInstanceCompat.getTexture(model) : modelForm.texture.get());
         }
         else
         {
             CurrentMaterialTextureOverrides.push(null);
             CurrentMaterialPbrOverrides.push(null, null);
+            CurrentModelTexture.push(ModelInstanceCompat.getTexture(model));
         }
     }
 
@@ -133,5 +139,7 @@ public abstract class ModelFormRendererMixinCML
     {
         CurrentMaterialTextureOverrides.pop();
         CurrentMaterialPbrOverrides.pop();
+        CurrentModelTexture.pop();
+        CurrentEmoticonArmor.pop();
     }
 }

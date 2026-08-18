@@ -1,5 +1,6 @@
 package glaxium.snb.render;
 
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
 import glaxium.snb.model.fbx.loaders.IModelMaterialTextures;
@@ -14,6 +15,7 @@ import mchorse.bbs_mod.settings.values.base.BaseValueBasic;
 import mchorse.bbs_mod.settings.values.core.ValueLink;
 import mchorse.bbs_mod.settings.values.numeric.ValueFloat;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +87,7 @@ public final class MaterialTextureDelegate
 
         if (data != null)
         {
-            return List.of(data.materialNames);
+            return uiMaterials(data.materialNames);
         }
 
         if (model instanceof IModelMaterialTextures cubic)
@@ -94,6 +96,33 @@ public final class MaterialTextureDelegate
         }
 
         return Collections.emptyList();
+    }
+
+    /**
+     * UI-facing material list. The armor sidecar shells are equipped-state
+     * geometry, not selectable/animated materials: they must never appear in
+     * the model panel's per-material pick menu or the film editor's material
+     * tracks, on any fork. The per-material RENDER loop reads
+     * {@code FBXCompiledData.materialNames} directly and is unaffected.
+     */
+    private static List<String> uiMaterials(String[] materialNames)
+    {
+        if (materialNames == null || materialNames.length == 0)
+        {
+            return Collections.emptyList();
+        }
+
+        List<String> result = new ArrayList<>(materialNames.length);
+
+        for (String name : materialNames)
+        {
+            if (name != null && !EmoticonArmorSidecar.isArmorMesh(name))
+            {
+                result.add(name);
+            }
+        }
+
+        return result;
     }
 
     /** Materials of the FBX model behind this Form, empty when the Form isn't a multi-material FBX {@code ModelForm}. */
@@ -166,6 +195,14 @@ public final class MaterialTextureDelegate
     public static boolean isMaterial(IModel model, String name)
     {
         if (name == null)
+        {
+            return false;
+        }
+
+        /* Armor shells are never material channels, even though they exist in
+         * the compiled data -- keeps any old armor keyframes in a film from
+         * applying (and from being recreated in the editor). */
+        if (EmoticonArmorSidecar.isArmorMesh(name))
         {
             return false;
         }

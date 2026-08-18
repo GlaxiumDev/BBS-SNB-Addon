@@ -16,15 +16,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * Replaces Base/FS's single {@code "BBS model loader"} thread with a small
- * worker pool so morph/reload can overlap Java convert/compile work.
+ * <b>Parked — not registered in {@code bbs_snb_addon.mixins.json}.</b>
+ * Parallel model loads (4–8 workers) plus {@code ModelManager.reload()}
+ * clearing the shared {@code HashMap} mid-load froze the whole desktop on
+ * Linux under RAM pressure. Stock BBS's single loader thread is used again
+ * until reload can be synchronized against the model map and concurrency can
+ * be capped safely.
  *
- * <p>Kept deliberately small ({@link #bbsFbx$WORKER_COUNT} = 2): the old
- * 4–8 worker pool plus concurrent Assimp imports froze Linux desktops under
- * RAM pressure. Assimp itself is also serialized in
- * {@code FBXAssimpImporter} ({@code IMPORT_LOCK}), so workers mainly overlap
- * post-import Java work with the next native parse — not 8 native imports at
- * once.</p>
+ * <p>Replaces Base/FS's {@code ModelLoader} -- one dedicated {@code "BBS model
+ * loader"} thread draining a queue -- with a small worker pool, so opening a
+ * morph category with many distinct models doesn't load them strictly one
+ * after another (the visible symptom: models "pop in" one-by-one, each
+ * paying the full parse-plus-convert cost before the next even
+ * starts).</p>
  *
  * <p>Must be paired with {@link ModelManagerConcurrencyMixinBaseFS}. Gated to
  * Base/FS only (CML already has its own multi-worker loader).</p>

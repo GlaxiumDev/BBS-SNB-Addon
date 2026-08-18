@@ -6,6 +6,7 @@ import glaxium.snb.model.fbx.convert.FBXMath;
 import glaxium.snb.model.fbx.convert.FBXMeshBuilder;
 import glaxium.snb.model.fbx.convert.FBXSceneWalker;
 import glaxium.snb.model.fbx.convert.FBXTextureExtractor;
+import glaxium.snb.model.fbx.scene.JavaScene;
 
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
@@ -21,11 +22,6 @@ import org.joml.Matrix4f;
 import org.joml.Vector2d;
 import org.joml.Vector3f;
 
-import org.lwjgl.assimp.AIBone;
-import org.lwjgl.assimp.AIMesh;
-import org.lwjgl.assimp.AINode;
-import org.lwjgl.assimp.AIScene;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -34,11 +30,11 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * FBXConverter converts an Assimp {@link AIScene} into BBS FS {@link BOBJData}.
+ * Converts the addon's pure-Java scene representation into BBS FS {@link BOBJData}.
  *
  * <p>This class is now just the orchestrator; the actual work is split into:
  * <ul>
- *   <li>{@link FBXSceneWalker} — reads the raw Assimp node tree</li>
+ *   <li>{@link FBXSceneWalker} — reads the format-neutral node tree</li>
  *   <li>{@link FBXArmatureBuilder} — builds the BOBJArmature (skinned or per-object bones)</li>
  *   <li>{@link FBXMeshBuilder} — converts mesh geometry + weights</li>
  *   <li>{@link FBXAnimationBaker} — bakes animation clips into BOBJActions</li>
@@ -51,7 +47,7 @@ import java.util.Set;
  *   <li>Blender bakes a 100x (cm->m) scale into the FBX node transform, so
  *       vertices are pre-multiplied by {@link #FBX_UNIT_SCALE} (0.01). Formats
  *       that are already in meters (glTF/GLB) pass 1.0 instead -- see
- *       {@link #convert(AIScene, float)}.</li>
+ *       {@link #convert(JavaScene, float)}.</li>
  *   <li>No auto-centering, grounding, or height-normalization. The model keeps
  *       the exact position/scale it had in Blender.</li>
  *   <li>For non-skinned scenes, each object becomes its own bone named after the
@@ -64,7 +60,7 @@ public class FBXConverter
     /** Undoes the 100x cm->m scale Blender bakes into FBX node transforms. */
     private static final float FBX_UNIT_SCALE = 0.01f;
 
-    public static BOBJData convert(AIScene scene)
+    public static BOBJData convert(JavaScene scene)
     {
         return convert(scene, FBX_UNIT_SCALE);
     }
@@ -77,7 +73,7 @@ public class FBXConverter
      * always use 1.0, since their vertices come in bind (meter) space with no
      * node scale applied.
      */
-    public static BOBJData convert(AIScene scene, float unitScale)
+    public static BOBJData convert(JavaScene scene, float unitScale)
     {
         List<Vertex> vertices = new ArrayList<>();
         List<Vector2d> textures = new ArrayList<>();
@@ -86,7 +82,7 @@ public class FBXConverter
         Map<String, BOBJAction> actions = new HashMap<>();
         Map<String, BOBJArmature> armatures = new HashMap<>();
 
-        AINode rootNode = scene.mRootNode();
+        JavaScene.Node rootNode = scene.root;
         if (rootNode == null)
         {
             return new BOBJData(vertices, textures, normals, meshes, actions, armatures);
@@ -102,16 +98,23 @@ public class FBXConverter
         Map<Integer, Matrix4f> meshTransforms = FBXSceneWalker.collectMeshTransforms(rootNode, meshNodeNames, nodeParents, nodeLocals, nodeWorldTransforms);
 
         Map<String, Integer> skinnedBoneMeshIndex = new HashMap<>();
-        Map<String, AIBone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
+        Map<String, JavaScene.Bone> skinnedBones = FBXArmatureBuilder.collectSkinnedBones(scene, skinnedBoneMeshIndex);
         Map<String, Matrix4f> boneMeshRotations = FBXArmatureBuilder.collectBoneMeshRotations(skinnedBoneMeshIndex, meshTransforms);
-        boolean ibmInSceneSpace = FBXArmatureBuilder.ibmInSceneSpace(skinnedBones, nodeWorldTransforms, skinnedBoneMeshIndex, meshTransforms);
+        /* FBX cluster transforms are mesh-local by definition in the files
+         * handled here.  The scene-space IBM heuristic is needed for glTF,
+         * but empty FBX clusters can otherwise outvote the real weighted
+         * clusters and incorrectly suppress the mesh-node rotation. */
+        boolean ibmInSceneSpace = unitScale >= 0.5F &&
+                FBXArmatureBuilder.ibmInSceneSpace(skinnedBones, nodeWorldTransforms, skinnedBoneMeshIndex, meshTransforms);
+        float splitMeshAnimationScale = FBXArmatureBuilder.detectSplitMeshAnimationScale(skinnedBones,
+                nodeWorldTransforms, skinnedBoneMeshIndex, meshTransforms, ibmInSceneSpace);
 
         BOBJArmature globalArmature = new BOBJArmature("Armature");
         armatures.put(globalArmature.name, globalArmature);
 
         float[] globalScale = {unitScale};
         Set<String> neededNodes = new HashSet<>();
-        int numMeshes = scene.mNumMeshes();
+        int numMeshes = scene.meshes.size();
 
         Matrix4f boneSpace = FBXArmatureBuilder.buildBoneSpace(rootCorrection, skinnedBoneMeshIndex, meshTransforms, ibmInSceneSpace);
         float animScale = unitScale;
@@ -130,8 +133,8 @@ public class FBXConverter
             globalScale[0] = centimeterGeometry ? FBX_UNIT_SCALE : 1.0f;
             animScale = globalScale[0];
 
-            /* Scene-space IBMs (glTF): geometry is already meters, but Assimp
-             * node animation keys still carry the pre-scale local translations
+            /* Scene-space IBMs (glTF): geometry is already meters, but node
+             * animation keys can still carry the pre-scale local translations
              * (cm). Scale those deltas by the mesh node's scale so a camera
              * key of 139 doesn't move the bone 139 meters. */
             if (ibmInSceneSpace)
@@ -141,6 +144,13 @@ public class FBXConverter
                 {
                     animScale = meshScale;
                 }
+            }
+            else if (splitMeshAnimationScale < 0.5F)
+            {
+                /* Some Blender FBXs put 100x only on the mesh while their
+                 * skeleton animation remains in centimetres. The structural
+                 * detector above returns the matching IBM unit bridge. */
+                animScale = globalScale[0] * splitMeshAnimationScale;
             }
         }
         else
@@ -178,9 +188,9 @@ public class FBXConverter
 
         for (int i = 0; i < numMeshes; i++)
         {
-            AIMesh aiMesh = AIMesh.create(scene.mMeshes().get(i));
+            JavaScene.Mesh sourceMesh = scene.meshes.get(i);
             String objectBoneName = meshNodeNames.getOrDefault(i, "object_" + i);
-            FBXMeshBuilder.buildMesh(scene, aiMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName, ibmInSceneSpace);
+            FBXMeshBuilder.buildMesh(scene, sourceMesh, i, vertices, textures, normals, meshes, globalArmature, globalScale[0], rootCorrection, offsetX, offsetY, offsetZ, meshTransforms, objectBoneName, ibmInSceneSpace);
         }
 
         FBXMeshBuilder.finalizeWeights(vertices, globalArmature);
@@ -195,11 +205,13 @@ public class FBXConverter
          * FBXAnimationBaker.processAnimations() already skips any channel
          * whose node isn't a bone in the armature, so this is safe to run
          * unconditionally whenever the scene has animation data. */
-        if (scene.mNumAnimations() > 0)
+        if (!scene.animations.isEmpty())
         {
-            Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature, skinnedBoneMeshIndex, meshTransforms, nodeWorldTransforms, ibmInSceneSpace, nodeLocals);
+            Map<String, Matrix4f> bindLocals = FBXAnimationBaker.computeBindLocals(skinnedBones, globalArmature,
+                    skinnedBoneMeshIndex, meshTransforms, nodeWorldTransforms, ibmInSceneSpace, nodeLocals,
+                    splitMeshAnimationScale);
 
-            /* Non-skinned: no IBMs — always rest against Assimp node locals
+            /* Non-skinned: no IBMs — always rest against source node locals
              * (same space as the animation keys). */
             if (skinnedBones.isEmpty() && nodeLocals != null && !nodeLocals.isEmpty())
             {
@@ -265,23 +277,19 @@ public class FBXConverter
      * brings them down to Minecraft-sized meters. Returns false for Blender
      * FBX (small AABB, 100x on the node) and for glTF that already scaled.
      */
-    private static boolean needsCentimeterScale(AIScene scene, Map<Integer, Matrix4f> meshTransforms)
+    private static boolean needsCentimeterScale(JavaScene scene, Map<Integer, Matrix4f> meshTransforms)
     {
         float maxExtent = 0F;
 
-        for (int i = 0; i < scene.mNumMeshes(); i++)
+        for (JavaScene.Mesh mesh : scene.meshes)
         {
-            AIMesh mesh = AIMesh.create(scene.mMeshes().get(i));
             float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minZ = Float.POSITIVE_INFINITY;
             float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
-            var verts = mesh.mVertices();
-
-            while (verts.remaining() > 0)
+            for (Vector3f v : mesh.vertices)
             {
-                var v = verts.get();
-                minX = Math.min(minX, v.x()); maxX = Math.max(maxX, v.x());
-                minY = Math.min(minY, v.y()); maxY = Math.max(maxY, v.y());
-                minZ = Math.min(minZ, v.z()); maxZ = Math.max(maxZ, v.z());
+                minX = Math.min(minX, v.x); maxX = Math.max(maxX, v.x);
+                minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y);
+                minZ = Math.min(minZ, v.z); maxZ = Math.max(maxZ, v.z);
             }
 
             maxExtent = Math.max(maxExtent, Math.max(maxX - minX, Math.max(maxY - minY, maxZ - minZ)));
@@ -304,7 +312,7 @@ public class FBXConverter
      * folders. Thin wrapper kept here so {@code FBXModelLoader} doesn't need
      * to depend on the {@code convert} sub-package directly.
      */
-    public static Set<String> extractEmbeddedTextures(AIScene scene, AssetProvider provider, Link model)
+    public static Set<String> extractEmbeddedTextures(JavaScene scene, AssetProvider provider, Link model)
     {
         return FBXTextureExtractor.extract(scene, provider, model);
     }

@@ -3,6 +3,8 @@ package glaxium.snb.mixin.fs;
 import glaxium.snb.render.CurrentMaterialTextureOverrides;
 import glaxium.snb.render.TextureBindRestore;
 import glaxium.snb.render.MultiMaterialTriangleDraw;
+import glaxium.snb.render.CurrentEmoticonArmor;
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 
 import mchorse.bbs_mod.BBSModClient;
@@ -23,6 +25,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -64,6 +67,57 @@ public abstract class BOBJModelVAOMixinFS
 {
     @Shadow public BOBJLoader.CompiledData data;
     @Shadow private int vao;
+
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
+    private void bbsFbx$hideEmptyArmorSlot(
+            ShaderProgram shader, MatrixStack stack, float r, float g, float b, float a,
+            StencilMap stencilMap, int light, int overlay, CallbackInfo info)
+    {
+        String mesh = bbsFbx$meshName();
+
+        if (CurrentEmoticonArmor.shouldHide(mesh))
+        {
+            info.cancel();
+            return;
+        }
+
+        Link armorTexture = CurrentEmoticonArmor.texture(mesh);
+
+        if (armorTexture != null)
+        {
+            /* ModelInstance bound the form/model fallback immediately before
+             * this call. Rebind at the final per-VAO boundary so a native FS
+             * material fallback cannot make the armor shell sample the skin
+             * atlas. bindTexture updates RenderSystem/Iris tracking; bind
+             * makes unit zero correct immediately too. */
+            BBSModClient.getTextures().bindTexture(armorTexture);
+            GL30.glActiveTexture(GL30.GL_TEXTURE0);
+            BBSModClient.getTextures().bind(armorTexture);
+        }
+    }
+
+    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 0, argsOnly = true, remap = false)
+    private float bbsFbx$tintArmorRed(float value)
+    {
+        return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 0, value);
+    }
+
+    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 1, argsOnly = true, remap = false)
+    private float bbsFbx$tintArmorGreen(float value)
+    {
+        return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 1, value);
+    }
+
+    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 2, argsOnly = true, remap = false)
+    private float bbsFbx$tintArmorBlue(float value)
+    {
+        return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 2, value);
+    }
+
+    private String bbsFbx$meshName()
+    {
+        return this.data == null || this.data.mesh == null ? null : this.data.mesh.name;
+    }
 
     @Inject(
             method = "render",
@@ -121,7 +175,14 @@ public abstract class BOBJModelVAOMixinFS
             {
                 Link override = overrides.get(materialNames[m]);
                 Link sharedDefault = materialTextures != null && m < materialTextures.length ? materialTextures[m] : null;
-                Link texture = override != null ? override : sharedDefault;
+                /* With at most one UI-visible (non-armor) material the model is
+                 * effectively single-texture: the caller-bound whole-model
+                 * texture (the form's "texture" override) must govern, not the
+                 * per-material folder default -- otherwise whole-model
+                 * "textures" keyframes in films never visibly apply. Mirrors
+                 * FS's native ignoreMaterials logic. */
+                Link texture = override != null ? override
+                        : (sharedDefault != null && !bbsFbx$singleUiMaterial(fbxData) ? sharedDefault : null);
 
                 if (texture != null)
                 {
@@ -166,5 +227,28 @@ public abstract class BOBJModelVAOMixinFS
             GL30.glBindBuffer(GL30.GL_ELEMENT_ARRAY_BUFFER, currentElementArrayBuffer);
             TextureBindRestore.restore(textureSnapshot);
         }
+    }
+
+    /** True when at most one UI-visible (non-armor) material remains. */
+    private static boolean bbsFbx$singleUiMaterial(FBXCompiledData fbxData)
+    {
+        String[] names = fbxData.materialNames;
+
+        if (names == null)
+        {
+            return true;
+        }
+
+        int count = 0;
+
+        for (String name : names)
+        {
+            if (name != null && !EmoticonArmorSidecar.isArmorMesh(name) && ++count > 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

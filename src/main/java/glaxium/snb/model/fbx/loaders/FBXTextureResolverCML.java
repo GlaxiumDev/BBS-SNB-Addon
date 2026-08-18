@@ -142,17 +142,52 @@ public final class FBXTextureResolverCML
 
     private static Link firstImageLink(Collection<Link> links)
     {
+        Link fallback = null;
+
         for (Link l : links)
         {
             String path = l.path.toLowerCase();
 
             if (path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg"))
             {
-                return l;
+                /* Iris-style companion maps (_n = normal, _s = specular, _e =
+                 * emissive) sit next to the main texture and must never be
+                 * picked as the model's texture itself. Prefer a plain
+                 * default.png when there is one, so adding a _s file next to
+                 * it doesn't change what the model shows. */
+                if (isCompanionFile(path))
+                {
+                    continue;
+                }
+
+                if (path.endsWith("default.png"))
+                {
+                    return l;
+                }
+
+                if (fallback == null)
+                {
+                    fallback = l;
+                }
             }
         }
 
-        return null;
+        return fallback;
+    }
+
+    /** True for Iris-style companion maps ({@code *_n.png}, {@code *_s.png}, {@code *_e.png}) that accompany a material's main texture. */
+    private static boolean isCompanionFile(String path)
+    {
+        int dot = path.lastIndexOf('.');
+
+        if (dot < 0)
+        {
+            return false;
+        }
+
+        String stem = path.substring(0, dot);
+
+        return stem.endsWith("_n") || stem.endsWith("_s") || stem.endsWith("_e");
     }
 
     /**
@@ -161,23 +196,50 @@ public final class FBXTextureResolverCML
      * IModelLoader doesn't declare it. Only reads what
      * {@code FBXTextureExtractor} (shared with FS) may have already
      * written; never writes anything itself.
+     *
+     * <p>The material folder commonly holds {@code default.png} plus
+     * Iris-style companion maps ({@code default_s.png} specular,
+     * {@code default_n.png} normal, {@code default_e.png} emissive). Those
+     * companions must never be chosen as the material's diffuse itself --
+     * the link collection is unordered, so without an explicit preference
+     * the "first .png" could be the specular/glow map (a mostly-blue file
+     * that renders as the material's color). {@code default.png} is always
+     * preferred when present; companion files are skipped outright.</p>
      */
     private static Link findMaterialTexture(Collection<Link> links, Link model, String material)
     {
         String prefix = model.toString();
         String folder = "/textures/" + material + "/";
+        Link fallback = null;
 
         for (Link link : links)
         {
             String string = link.toString();
 
-            if (string.startsWith(prefix) && string.contains(folder) && string.endsWith(".png"))
+            if (!string.startsWith(prefix) || !string.contains(folder) || !string.endsWith(".png"))
+            {
+                continue;
+            }
+
+            String lower = link.path.toLowerCase();
+
+            if (isCompanionFile(lower))
+            {
+                continue;
+            }
+
+            if (lower.endsWith("default.png"))
             {
                 return link;
             }
+
+            if (fallback == null)
+            {
+                fallback = link;
+            }
         }
 
-        return null;
+        return fallback;
     }
 
     private static int clampToByte(float value)

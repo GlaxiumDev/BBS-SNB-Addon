@@ -8,7 +8,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * work. Stock BBS {@code ModelLoader.add} blindly {@code offer}s every id, and
  * {@code getModel} only keeps a single null placeholder while loading — so a
  * mid-load {@code reload()} or watchdog {@code remove} clears that placeholder
- * and every subsequent render frame queues another full Assimp/BOBJ import of
+ * and every subsequent render frame queues another full model/BOBJ import of
  * the same model (dozens of "Model X was loaded!" lines and a flickering mesh).
  */
 public final class ModelLoadInFlight

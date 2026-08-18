@@ -3,6 +3,9 @@ package glaxium.snb.mixin.base;
 import glaxium.snb.model.fbx.loaders.IFormMaterialTextureHolder;
 import glaxium.snb.mixin.FormRendererAccessor;
 import glaxium.snb.render.CurrentMaterialTextureOverrides;
+import glaxium.snb.render.CurrentEmoticonArmor;
+import glaxium.snb.render.CurrentModelTexture;
+import glaxium.snb.compat.ModelInstanceCompat;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.forms.entities.IEntity;
@@ -49,15 +52,18 @@ public abstract class ModelFormRendererMixinBase
             int light, int overlay, Color color, boolean ui, StencilMap stencilMap, float transition,
             CallbackInfo info)
     {
+        CurrentEmoticonArmor.push(target, model, !ui);
         Form form = ((FormRendererAccessor) (Object) this).bbsFbx$getForm();
 
         if (form instanceof ModelForm modelForm)
         {
             CurrentMaterialTextureOverrides.push(((IFormMaterialTextureHolder) modelForm).bbsFbx$getMaterialTextureOverrides());
+            CurrentModelTexture.push(modelForm.texture.get() == null ? ModelInstanceCompat.getTexture(model) : modelForm.texture.get());
         }
         else
         {
             CurrentMaterialTextureOverrides.push(null);
+            CurrentModelTexture.push(ModelInstanceCompat.getTexture(model));
         }
     }
 
@@ -68,5 +74,7 @@ public abstract class ModelFormRendererMixinBase
             CallbackInfo info)
     {
         CurrentMaterialTextureOverrides.pop();
+        CurrentModelTexture.pop();
+        CurrentEmoticonArmor.pop();
     }
 }

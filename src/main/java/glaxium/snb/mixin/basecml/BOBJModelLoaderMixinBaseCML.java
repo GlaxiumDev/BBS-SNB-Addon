@@ -6,6 +6,7 @@ import glaxium.snb.model.fbx.loaders.FBXMeshCompiler;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXTextureResolverCML;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader;
@@ -22,6 +23,7 @@ import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.math.molang.MolangParser;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
+import mchorse.bbs_mod.utils.resources.LinkUtils;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -77,7 +79,7 @@ public abstract class BOBJModelLoaderMixinBaseCML
             String id, ModelManager models, Link model, Collection<Link> links, MapType config,
             CallbackInfoReturnable<ModelInstance> cir)
     {
-        /* FBX/glTF folders have no .bobj — bail before getAsset so every Assimp
+        /* FBX/glTF folders have no .bobj — bail before getAsset so every scene
          * model does not pay a FileNotFoundException + stack dump on the BOBJ
          * loader that runs first in ModelManager.loadModel. */
         if (!bbsFbx$hasBobj(links))
@@ -87,7 +89,14 @@ public abstract class BOBJModelLoaderMixinBaseCML
         }
 
         Link modelBOBJ = IModelLoader.getLink(model.combine("model.bobj"), links, ".bobj");
-        Link modelTexture = IModelLoader.getLink(model.combine("model.png"), links, ".png");
+
+        /* getLink() returns its constructed argument even when no .png exists,
+         * so a bare getLink(model.combine("model.png")) would hand the renderer
+         * a fabricated model.png link (missing file, blue/purple). Resolve the
+         * true model default instead: config.json's "texture" (what applyConfig
+         * will set on the ModelInstance), then a model.png that really exists,
+         * else null so material-less entries fall back to the model texture. */
+        Link modelTexture = bbsFbx$defaultTexture(config, model, links);
 
         try
         {
@@ -100,6 +109,8 @@ public abstract class BOBJModelLoaderMixinBaseCML
                 }
 
                 BOBJData bobjData = BOBJLoader.readData(stream);
+
+                EmoticonArmorSidecar.tryMerge(id, models.provider, model, bobjData);
 
                 if (bobjData.armatures.isEmpty())
                 {
@@ -142,7 +153,13 @@ public abstract class BOBJModelLoaderMixinBaseCML
                     resolveObjectTextures(merged, modelTexture, model, links, models);
                 }
 
-                BOBJModel bobjModel = FBXModelLoader.createModel(armature, merged);
+                /* Simple+ models (emoticons/*_simple) must carry the native
+                 * "simple" constructor flag or the model builds a plain VAO
+                 * whose processData is a no-op -- the sharp 90-degree hinge
+                 * the SimpleVAO applies would silently disappear. Same
+                 * condition as the native loaders. */
+                boolean simple = id.startsWith("emoticons") && id.endsWith("_simple");
+                BOBJModel bobjModel = FBXModelLoader.createModel(armature, merged, simple);
 
                 IFbxModel fbxModel = (IFbxModel) bobjModel;
                 fbxModel.bbsFbx$setFbxData(merged);
@@ -202,10 +219,39 @@ public abstract class BOBJModelLoaderMixinBaseCML
     }
 
     /**
+     * True default texture for a native BOBJ model: the {@code texture} entry
+     * of {@code config.json} (what {@code applyConfig} sets on the
+     * {@code ModelInstance}), else the folder's own {@code model.png} if it
+     * really exists, else {@code null}. Never a fabricated link -- native
+     * {@code IModelLoader.getLink} returns its constructed argument even when
+     * no matching file exists, which is what used to send the renderer looking
+     * for {@code models/emoticons/steve/model.png} (blue/purple) on models
+     * whose only texture is declared in {@code config.json}.
+     */
+    @Unique
+    private static Link bbsFbx$defaultTexture(MapType config, Link model, Collection<Link> links)
+    {
+        if (config != null && config.has("texture") && config.get("texture") != null)
+        {
+            Link texture = LinkUtils.create(config.get("texture"));
+
+            if (texture != null)
+            {
+                return texture;
+            }
+        }
+
+        Link modelPng = model.combine("model.png");
+
+        return links.contains(modelPng) ? modelPng : null;
+    }
+
+    /**
      * Per-object texture resolution for native BOBJ models. A saved pick wins,
      * then the {@code textures/<object>/} folder convention, then the model's
-     * own {@code model.png} (never null-ing out to the error texture for a
-     * BOBJ that simply has no per-object folders -- those render as stock).
+     * true default texture ({@code config.json} texture or real {@code model.png}).
+     * A {@code null} fallback (no config texture, no model.png) is fine: the VAO
+     * render mixins bind the model-level texture the caller already bound.
      */
     private static void resolveObjectTextures(
             FBXCompiledData merged, Link modelTexture, Link model, Collection<Link> links, ModelManager models)

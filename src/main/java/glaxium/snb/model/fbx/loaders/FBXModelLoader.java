@@ -3,6 +3,8 @@ package glaxium.snb.model.fbx.loaders;
 import glaxium.snb.model.fbx.FBXConverter;
 import glaxium.snb.model.fbx.FBXMesh;
 import glaxium.snb.model.fbx.FBXShapeKeyNames;
+import glaxium.snb.model.fbx.loaders.java.JavaSceneImporter;
+import glaxium.snb.model.fbx.scene.JavaScene;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader.BOBJData;
@@ -17,9 +19,6 @@ import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 
-import org.lwjgl.assimp.AIScene;
-import org.lwjgl.assimp.Assimp;
-
 import java.io.File;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -29,18 +28,17 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Registers as this addon's Assimp model loader (see {@code
+ * Registers as this addon's model loader (see {@code
  * ModelManagerMixin}, which installs this into {@code ModelManager.loaders}
  * on every fork), covering every format in {@link SceneFormat} -- FBX, glTF
  * and GLB. The formats share this one loader because only the import call
- * itself differs between them (flags, unit scale, external-file resolution);
- * everything from {@code AIScene} onwards is identical, hence the FBX-prefixed
- * class names throughout the pipeline.
+ * itself differs between them (unit scale and external-file resolution);
+ * every format is converted through the shared {@link JavaScene} pipeline,
+ * hence the historical FBX-prefixed class names.
  *
  * <p>One loader for all three forks -- Base, FS and CML. Everything upstream
- * of "we have a {@code BOBJData}" is shared with the FS-targeted sibling
- * addon's loader ({@link FBXAssimpImporter}, {@link FBXConverter},
- * {@link FBXModelLoadCache}), and everything downstream used to fork apart
+ * of "we have a {@code BOBJData}" is shared ({@link JavaSceneImporter},
+ * {@link FBXConverter}, {@link FBXModelLoadCache}), and everything downstream used to fork apart
  * only because {@code BOBJModel}'s constructor -- the single thing a model
  * class can't inherit -- genuinely diverges:
  *
@@ -117,18 +115,10 @@ public class FBXModelLoader implements IModelLoader
 
         try
         {
-            byte[] bytes;
-            try (InputStream stream = models.provider.getAsset(fbxLink))
-            {
-                if (stream == null)
-                {
-                    return null;
-                }
-                bytes = stream.readAllBytes();
-            }
-
-            long contentHash = FBXModelLoadCache.hash(bytes);
-            FBXModelLoadCache.Cached cached = FBXModelLoadCache.get(fbxLink.path, contentHash);
+            /* Reload fast path: unchanged files (same size + mtime) reuse the
+             * cached BOBJData without reading or hashing the file at all. */
+            File sceneFile = models.provider.getFile(fbxLink);
+            FBXModelLoadCache.Cached cached = FBXModelLoadCache.get(fbxLink.path, sceneFile);
 
             BOBJData data;
             Set<String> shapeKeyNames;
@@ -137,22 +127,37 @@ public class FBXModelLoader implements IModelLoader
             {
                 data = cached.data;
                 shapeKeyNames = cached.shapeKeyNames;
-
-                boolean texturesReextracted = ensureTexturesPresent(fbxLink, format, bytes, cached.texturedMaterials, models, model);
-
-                if (texturesReextracted)
-                {
-                    FBXModelLoadCache.invalidate(fbxLink.path);
-                }
             }
             else
             {
-                AIScene scene = null;
-                Set<String> texturedMaterials;
+                byte[] bytes;
 
-                try
+                try (InputStream stream = models.provider.getAsset(fbxLink))
                 {
-                    scene = importScene(fbxLink, format, bytes, models.provider);
+                    if (stream == null)
+                    {
+                        return null;
+                    }
+
+                    bytes = stream.readAllBytes();
+                }
+
+                long contentHash = FBXModelLoadCache.hash(bytes);
+
+                /* Second-chance lookup by content hash: covers jar-served
+                 * assets and files whose mtime changed (or is unreliable)
+                 * but whose content didn't. */
+                cached = FBXModelLoadCache.get(fbxLink.path, contentHash);
+
+                if (cached != null)
+                {
+                    data = cached.data;
+                    shapeKeyNames = cached.shapeKeyNames;
+                }
+                else
+                {
+                    Set<String> texturedMaterials;
+                    JavaScene scene = importScene(fbxLink, format, bytes, models.provider);
 
                     if (scene == null)
                     {
@@ -162,16 +167,16 @@ public class FBXModelLoader implements IModelLoader
                     shapeKeyNames = FBXShapeKeyNames.collectShapeKeyNames(scene);
                     data = FBXConverter.convert(scene, format.unitScale());
                     texturedMaterials = FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
-                }
-                finally
-                {
-                    if (scene != null)
-                    {
-                        Assimp.aiReleaseImport(scene);
-                    }
-                }
 
-                FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames, texturedMaterials);
+                    FBXModelLoadCache.put(fbxLink.path, contentHash, data, shapeKeyNames, texturedMaterials, sceneFile);
+                }
+            }
+
+            boolean texturesReextracted = ensureTexturesPresent(fbxLink, format, cached != null ? cached.texturedMaterials : null, models, model);
+
+            if (texturesReextracted)
+            {
+                FBXModelLoadCache.invalidate(fbxLink.path);
             }
 
             data.initiateArmatures();
@@ -239,29 +244,44 @@ public class FBXModelLoader implements IModelLoader
      */
     public static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged)
     {
+        return createModel(armature, merged, false);
+    }
+
+    /**
+     * {@code simple} is the {@code BOBJModel} constructor's "Simple+ model"
+     * flag: true makes the model's setup build a
+     * {@code BOBJModelSimpleVAO}, whose {@code processData} applies the
+     * sharp 90-degree UV-based hinge to Simple+ body parts. The native
+     * loaders pass {@code id.startsWith("emoticons") && id.endsWith("_simple")},
+     * so the addon's Base/CML loader must pass the same or those models
+     * silently lose their hinge (they get a plain VAO with a no-op
+     * {@code processData} instead).
+     */
+    public static BOBJModel createModel(BOBJArmature armature, FBXCompiledData merged, boolean simple)
+    {
         try
         {
             Constructor<BOBJModel> listCtor = BOBJModel.class.getConstructor(BOBJArmature.class, List.class, boolean.class);
 
-            return listCtor.newInstance(armature, List.of(merged), false);
+            return listCtor.newInstance(armature, List.of(merged), simple);
         }
         catch (NoSuchMethodException e)
         {
-            return singleCompiledDataModel(armature, merged);
+            return singleCompiledDataModel(armature, merged, simple);
         }
         catch (ReflectiveOperationException e)
         {
-            return singleCompiledDataModel(armature, merged);
+            return singleCompiledDataModel(armature, merged, simple);
         }
     }
 
-    private static BOBJModel singleCompiledDataModel(BOBJArmature armature, FBXCompiledData merged)
+    private static BOBJModel singleCompiledDataModel(BOBJArmature armature, FBXCompiledData merged, boolean simple)
     {
         try
         {
             Constructor<BOBJModel> singleCtor = BOBJModel.class.getConstructor(BOBJArmature.class, CompiledData.class, boolean.class);
 
-            return singleCtor.newInstance(armature, merged, false);
+            return singleCtor.newInstance(armature, merged, simple);
         }
         catch (ReflectiveOperationException e)
         {
@@ -366,22 +386,15 @@ public class FBXModelLoader implements IModelLoader
     }
 
     /**
-     * Imports through Assimp's own file IO when the asset is a real file, and
-     * only falls back to the in-memory import when it isn't (a zipped/packed
-     * source pack). The file path matters for the "separate" glTF export,
+     * Passes the real source path to the Java reader when available. The path
+     * matters for a "separate" glTF export,
      * whose {@code .bin} buffer and loose image files are referenced by
      * relative URI and are simply unreachable from a bare byte buffer.
      */
-    private static AIScene importScene(Link link, SceneFormat format, byte[] bytes, AssetProvider provider)
+    private static JavaScene importScene(Link link, SceneFormat format, byte[] bytes, AssetProvider provider) throws java.io.IOException
     {
         File file = provider.getFile(link);
-
-        if (file != null && file.isFile())
-        {
-            return FBXAssimpImporter.importScene(file, format);
-        }
-
-        return FBXAssimpImporter.importScene(bytes, format);
+        return JavaSceneImporter.importScene(bytes, format, file != null && file.isFile() ? file : null);
     }
 
     /**
@@ -390,7 +403,7 @@ public class FBXModelLoader implements IModelLoader
      * (folder deleted by the user), re-import purely to rerun texture
      * extraction.
      */
-    private static boolean ensureTexturesPresent(Link link, SceneFormat format, byte[] bytes, Set<String> texturedMaterials, ModelManager models, Link model)
+    private static boolean ensureTexturesPresent(Link link, SceneFormat format, Set<String> texturedMaterials, ModelManager models, Link model)
     {
         if (texturedMaterials == null || texturedMaterials.isEmpty())
         {
@@ -416,23 +429,30 @@ public class FBXModelLoader implements IModelLoader
             return false;
         }
 
-        AIScene scene = null;
-
         try
         {
-            scene = importScene(link, format, bytes, models.provider);
+            byte[] bytes;
+
+            try (InputStream stream = models.provider.getAsset(link))
+            {
+                bytes = stream == null ? null : stream.readAllBytes();
+            }
+
+            if (bytes == null)
+            {
+                return false;
+            }
+
+            JavaScene scene = importScene(link, format, bytes, models.provider);
 
             if (scene != null)
             {
                 FBXConverter.extractEmbeddedTextures(scene, models.provider, model);
             }
         }
-        finally
+        catch (java.io.IOException e)
         {
-            if (scene != null)
-            {
-                Assimp.aiReleaseImport(scene);
-            }
+            System.err.println("[BBS FBX] Failed to re-extract embedded textures: " + e.getMessage());
         }
 
         return true;
