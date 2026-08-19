@@ -111,7 +111,7 @@ final class LegacyBBExtruder
                     vertex.nx, vertex.ny, vertex.nz,
                     red, green, blue, alpha, light, overlay);
         }
-        LegacyBBRenderer.draw(buffer, shader);
+        LegacyBBRenderer.draw(buffer, matrices, shader);
         return true;
     }
 
