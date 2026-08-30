@@ -21,8 +21,8 @@ import net.minecraft.client.render.LightmapTextureManager;
 import net.minecraft.client.render.Tessellator;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
-import mchorse.bbs_mod.cubic.render.vao.ModelVAORenderer;
 import net.minecraft.client.util.math.MatrixStack;
+import org.joml.Matrix3f;
 import org.joml.Matrix4f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
@@ -264,7 +264,7 @@ public final class LegacyBBRenderer
             }
         }
 
-        draw(buffer, matrices, shader);
+        draw(buffer, shader);
     }
 
     private static void renderObj(
@@ -347,7 +347,7 @@ public final class LegacyBBRenderer
                     nx, -ny, nz, red, green, blue, alpha, light, overlay);
         }
 
-        draw(buffer, matrices, shader);
+        draw(buffer, shader);
     }
 
     private static final class DrawState
@@ -398,99 +398,13 @@ public final class LegacyBBRenderer
         else bindSampler0(state.modelTextureId);
     }
 
-    static void draw(BufferBuilder buffer, MatrixStack matrices, Supplier<ShaderProgram> shader)
+    static void draw(BufferBuilder buffer, Supplier<ShaderProgram> shader)
     {
         BuiltBuffer built = buffer.endNullable();
         if (built == null) return;
 
-        Vector3f savedLight0 = bbsFbx$currentLight(0);
-        Vector3f savedLight1 = bbsFbx$currentLight(1);
-        Vector3f[] sun = bbsFbx$worldSun();
-
-        if (sun != null)
-        {
-            RenderSystem.setShaderLights(sun[0], sun[1]);
-        }
-
         RenderSystem.setShader(shader);
-
-        /* BufferBuilder.vertex(matrix, ...) already bakes the complete actor
-         * + legacy limb transform into every position. Passing the same
-         * MatrixStack to setupUniforms applies it a second time in the 1.21
-         * shader, distorting OBJ-backed model.json limbs. Keep only the
-         * global RenderSystem model-view for positions. Normals are submitted
-         * untransformed, so they still need this limb's normal matrix. */
-        MatrixStack identity = new MatrixStack();
-
-        ModelVAORenderer.setupUniforms(
-                shader.get(),
-                ModelVAORenderer.captureModelView(identity),
-                matrices.peek().getNormalMatrix());
-
         BufferRenderer.drawWithGlobalProgram(built);
-
-        if (sun != null && savedLight0 != null && savedLight1 != null)
-        {
-            RenderSystem.setShaderLights(savedLight0, savedLight1);
-        }
-    }
-
-    /** Reads the live shader light direction (reflective: the field is private). */
-    private static Vector3f bbsFbx$currentLight(int index)
-    {
-        try
-        {
-            java.lang.reflect.Field field = RenderSystem.class.getDeclaredField("shaderLightDirections");
-
-            field.setAccessible(true);
-
-            Vector3f[] dirs = (Vector3f[]) field.get(null);
-
-            return dirs == null || dirs.length <= index ? null : new Vector3f(dirs[index]);
-        }
-        catch (ReflectiveOperationException ignored)
-        {
-            return null;
-        }
-    }
-
-    /**
-     * World-space sun and moon directions derived from the level's sky angle,
-     * rotated by the camera into view space. Null when there is no level (UI
-     * previews keep the game's own lighting).
-     */
-    private static Vector3f[] bbsFbx$worldSun()
-    {
-        net.minecraft.client.MinecraftClient client = net.minecraft.client.MinecraftClient.getInstance();
-
-        if (client == null || client.world == null || client.gameRenderer == null
-                || client.gameRenderer.getCamera() == null)
-        {
-            return null;
-        }
-
-        try
-        {
-            float skyAngle = client.world.getSkyAngle(client.getRenderTickCounter().getTickDelta(true));
-            float angle = skyAngle * (float) (Math.PI * 2.0);
-
-            Vector3f sunWorld = new Vector3f(
-                    (float) Math.cos(angle),
-                    0.75F,
-                    (float) Math.sin(angle)).normalize();
-            Vector3f moonWorld = new Vector3f(-sunWorld.x, -0.75F, -sunWorld.z).normalize();
-
-            Quaternionf viewRotation = client.gameRenderer.getCamera().getRotation();
-
-            return new Vector3f[] {
-                    viewRotation.transform(sunWorld, new Vector3f()),
-                    viewRotation.transform(moonWorld, new Vector3f())
-            };
-        }
-        catch (Exception ignored)
-        {
-            return null;
-        }
     }
 
     static void vertex(
@@ -499,16 +413,15 @@ public final class LegacyBBRenderer
             float red, float green, float blue, float alpha, int light, int overlay)
     {
         Matrix4f position = matrices.peek().getPositionMatrix();
+        Matrix3f normal = matrices.peek().getNormalMatrix();
+        Vector3f transformed = normal.transform(nx, ny, nz, new Vector3f());
 
-        /* The BBS model shader multiplies the incoming normal by NormalMat
-         * itself (vanilla entity-shader convention), so the normal must be
-         * passed untransformed -- exactly like the game's own VAO models. */
         buffer.vertex(position, x, y, z)
                 .color(red, green, blue, alpha)
                 .texture(u, v)
                 .overlay(overlay)
                 .light(light)
-                .normal(nx, ny, nz);
+                .normal(transformed.x, transformed.y, transformed.z);
     }
 
     private static float[] normal(float[] a, float[] b, float[] c)
