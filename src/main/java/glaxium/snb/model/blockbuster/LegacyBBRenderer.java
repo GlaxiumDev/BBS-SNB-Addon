@@ -414,7 +414,18 @@ public final class LegacyBBRenderer
 
         RenderSystem.setShader(shader);
 
-        ModelVAORenderer.setupUniforms(matrices, shader.get());
+        /* BufferBuilder.vertex(matrix, ...) already bakes the complete actor
+         * + legacy limb transform into every position. Passing the same
+         * MatrixStack to setupUniforms applies it a second time in the 1.21
+         * shader, distorting OBJ-backed model.json limbs. Keep only the
+         * global RenderSystem model-view for positions. Normals are submitted
+         * untransformed, so they still need this limb's normal matrix. */
+        MatrixStack identity = new MatrixStack();
+
+        ModelVAORenderer.setupUniforms(
+                shader.get(),
+                ModelVAORenderer.captureModelView(identity),
+                matrices.peek().getNormalMatrix());
 
         BufferRenderer.drawWithGlobalProgram(built);
 
