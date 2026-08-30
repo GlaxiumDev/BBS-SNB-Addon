@@ -2,5 +2,11 @@
   "bbs.form.bbs_fbx.fbx": "FBX",
   "bbs.form.fbx": "FBX",
   "bbs_fbx.importer.name": "Modelo FBX",
-  "bbs_fbx.importer.gltf.name": "Modelo glTF"
+  "bbs_fbx.importer.gltf.name": "Modelo glTF",
+  "bbs_fbx.pose_to_animation.context_menu": "Pose a animación",
+  "bbs_fbx.pose_to_animation.title": "Pose a animación",
+  "bbs_fbx.pose_to_animation.message": "Introduce un nombre para la animación",
+  "bbs_fbx.pose_to_animation.placeholder": "nombre de la animación",
+  "bbs_fbx.pose_to_animation.saved": "Animación \"%s\" guardada",
+  "bbs_fbx.pose_to_animation.error": "Error al guardar la animación"
 }

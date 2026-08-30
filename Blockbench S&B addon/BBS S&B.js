@@ -785,12 +785,33 @@
 
         if (lastOptions.model)
         {
+            /* model.texture is the pixel space every cube's face.uv values
+             * are authored in. That space is the PROJECT's canvas
+             * resolution (Project.texture_width/height, same as the
+             * .bbmodel's top-level "resolution" field) - it's what
+             * Blockbench's own viewport uses to place UV rectangles, so
+             * it's always right regardless of what any individual
+             * texture's uv_width/uv_height metadata says.
+             *
+             * findTextureSize() reads texture.uv_width/uv_height instead,
+             * which is a separate per-texture override that can go stale
+             * (e.g. the source PNG got replaced/resized without updating
+             * it) without Blockbench itself ever relying on it for cube
+             * UV placement. Trusting it here writes a texture size the
+             * model's own UVs were never authored against, which is
+             * exactly the kind of mismatch that breaks in-game texturing
+             * while still looking fine in Blockbench. Only fall back to
+             * it when the project resolution isn't usable. */
             var texture = [Project.texture_width, Project.texture_height];
-            var textureSize = findTextureSize();
 
-            if (textureSize)
+            if (!texture[0] || !texture[1])
             {
-                texture = textureSize;
+                var textureSize = findTextureSize();
+
+                if (textureSize)
+                {
+                    texture = textureSize;
+                }
             }
 
             output.model = {

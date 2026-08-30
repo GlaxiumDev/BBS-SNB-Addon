@@ -54,7 +54,8 @@
     "cml.CubicVAORendererMixinCML",
     "cml.UIReplaysEditorMixinCML",
     "cml.UIAnimationStateEditorMixinCML",
-    "cml.FlipDebugMixinCML"
+    "cml.FlipDebugMixinCML",
+    "UIReplaysEditorPoseToAnimationMixin"
   ],
   "injectors": {
     "defaultRequire": 1

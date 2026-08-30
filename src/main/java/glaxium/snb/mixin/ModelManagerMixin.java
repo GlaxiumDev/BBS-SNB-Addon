@@ -1,6 +1,7 @@
 package glaxium.snb.mixin;
 
 import glaxium.snb.BBSFbxAddon;
+import glaxium.snb.anim.PoseToAnimation;
 import glaxium.snb.model.bbssnb.BBSSNBModelLoader;
 import glaxium.snb.model.blockbuster.BlockbusterModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
@@ -10,16 +11,20 @@ import glaxium.snb.model.fbx.loaders.SceneFormat;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.model.ModelManager;
+import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.utils.watchdog.WatchDogEvent;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -194,5 +199,42 @@ public class ModelManagerMixin
     private void bbsFbx$endInFlight(String id, CallbackInfoReturnable<ModelInstance> info)
     {
         ModelLoadInFlight.end(id);
+    }
+
+    /**
+     * Filters animation-only {@code .bobj} files out of the link list handed
+     * to the model loaders, so a file saved under
+     * {@code models/<id>/animations/} is never mistaken for the model itself
+     * (the BOBJ loader falls back to "any {@code .bobj} in the folder" when
+     * there is no {@code model.bobj}). Animation files are merged back in by
+     * {@link #bbsFbx$mergePoseAnimations} after the loader returns.
+     */
+    @Redirect(
+            method = "loadModel",
+            at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/resources/AssetProvider;getLinksFromPath(Lmchorse/bbs_mod/resources/Link;Z)Ljava/util/Collection;"),
+            remap = false
+    )
+    private Collection<Link> bbsFbx$filterAnimationLinks(AssetProvider provider, Link link, boolean recursive)
+    {
+        Collection<Link> links = provider.getLinksFromPath(link, recursive);
+        List<Link> filtered = new ArrayList<>(links);
+
+        filtered.removeIf(l -> l != null && l.path != null && l.path.contains("/animations/"));
+
+        return filtered;
+    }
+
+    /**
+     * Merges any pose-to-animation {@code .bobj} files saved under the
+     * model's {@code animations/} subfolder into the freshly loaded model's
+     * {@link mchorse.bbs_mod.cubic.data.animation.Animations}, so they appear
+     * in the animation keyframe dropdown like embedded animations. Runs for
+     * every loader on every fork, since all formats converge on the same
+     * {@code ModelInstance.animations} shape.
+     */
+    @Inject(method = "loadModel", at = @At("RETURN"), remap = false)
+    private void bbsFbx$mergePoseAnimations(String id, CallbackInfoReturnable<ModelInstance> info)
+    {
+        PoseToAnimation.merge(info.getReturnValue(), (ModelManager) (Object) this);
     }
 }
