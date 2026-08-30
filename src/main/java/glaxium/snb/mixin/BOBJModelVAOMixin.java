@@ -22,6 +22,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -48,6 +50,9 @@ import java.util.concurrent.atomic.AtomicReference;
 @Mixin(value = BOBJModelVAO.class, remap = false)
 public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 {
+    @Unique private static Method bbsFbx$processDataMethod;
+    @Unique private static boolean bbsFbx$processDataHasMatrices;
+
     @Shadow public BOBJLoader.CompiledData data;
     @Shadow public BOBJArmature armature;
     @Shadow private int count;
@@ -59,8 +64,6 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
     @Shadow private float[] tmpNormals;
     @Shadow private int[] tmpLight;
     @Shadow private float[] tmpTangents;
-
-    @Shadow protected abstract void processData(float[] newVertices, float[] newNormals);
 
     // ---------------------------------------------------------------
     // Bone matrices, flattened
@@ -636,7 +639,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
         boolean lightChanged = this.bbsFbx$rebuildLightIfStale(stencilMap);
 
-        this.processData(newVertices, newNormals);
+        this.bbsFbx$processData(newVertices, newNormals, matrices);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vertexBuffer);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newVertices, GL15.GL_DYNAMIC_DRAW);
@@ -1055,7 +1058,9 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
             this.bbsFbx$lightValid = false;
         }
 
-        this.processData(newVertices, newNormals);
+        Matrix4f[] matrices = this.armature == null ? null : this.armature.matrices;
+
+        this.bbsFbx$processData(newVertices, newNormals, matrices);
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.vertexBuffer);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newVertices, GL15.GL_DYNAMIC_DRAW);
@@ -1078,5 +1083,66 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         }
 
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, 0);
+    }
+
+    /**
+     * Dispatches to the host VAO post-processor without hard-linking this
+     * common mixin to a fork-specific descriptor. Base/CML expose
+     * processData(float[], float[]), while BBS FS 2.5.2 adds the armature
+     * matrix snapshot as a third argument.
+     */
+    @Unique
+    private void bbsFbx$processData(float[] vertices, float[] normals, Matrix4f[] matrices)
+    {
+        try
+        {
+            Method method = bbsFbx$processDataMethod;
+
+            if (method == null)
+            {
+                try
+                {
+                    method = BOBJModelVAO.class.getDeclaredMethod("processData", float[].class, float[].class, Matrix4f[].class);
+                    bbsFbx$processDataHasMatrices = true;
+                }
+                catch (NoSuchMethodException ignored)
+                {
+                    method = BOBJModelVAO.class.getDeclaredMethod("processData", float[].class, float[].class);
+                    bbsFbx$processDataHasMatrices = false;
+                }
+
+                method.setAccessible(true);
+                bbsFbx$processDataMethod = method;
+            }
+
+            if (bbsFbx$processDataHasMatrices)
+            {
+                method.invoke(this, vertices, normals, matrices);
+            }
+            else
+            {
+                method.invoke(this, vertices, normals);
+            }
+        }
+        catch (InvocationTargetException e)
+        {
+            Throwable cause = e.getCause();
+
+            if (cause instanceof RuntimeException runtime)
+            {
+                throw runtime;
+            }
+
+            if (cause instanceof Error error)
+            {
+                throw error;
+            }
+
+            throw new RuntimeException("Failed to post-process BOBJ VAO data", cause);
+        }
+        catch (ReflectiveOperationException e)
+        {
+            throw new RuntimeException("Unsupported BOBJ VAO processData signature", e);
+        }
     }
 }
