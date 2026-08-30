@@ -6,6 +6,8 @@ import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelSimpleVAO;
 import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 
+import org.joml.Matrix4f;
+
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
@@ -43,8 +45,9 @@ public abstract class BOBJModelArmorMixinFS
 
     @Unique private ArmorJoint[] bbsFbx$armorJoints;
 
-    @Inject(method = "processData([F[F)V", at = @At("HEAD"), cancellable = true, remap = false)
-    private void bbsFbx$applyGeometricHingeToArmor(float[] newVertices, float[] newNormals, CallbackInfo info)
+    @Inject(method = "processData([F[F[Lorg/joml/Matrix4f;)V", at = @At("HEAD"), cancellable = true, remap = false)
+    private void bbsFbx$applyGeometricHingeToArmor(float[] newVertices, float[] newNormals,
+            Matrix4f[] matrices, CallbackInfo info)
     {
         BOBJModelVAO self = (BOBJModelVAO) (Object) this;
         String mesh = self.data == null || self.data.mesh == null ? null : self.data.mesh.name;

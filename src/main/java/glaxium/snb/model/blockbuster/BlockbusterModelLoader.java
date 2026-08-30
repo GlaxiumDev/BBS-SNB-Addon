@@ -35,11 +35,13 @@ import mchorse.bbs_mod.utils.StringUtils;
 import mchorse.bbs_mod.utils.pose.Pose;
 import mchorse.bbs_mod.utils.pose.PoseManager;
 import mchorse.bbs_mod.utils.pose.PoseTransform;
+import mchorse.bbs_mod.utils.pose.Transform;
 
 import net.minecraft.util.Identifier;
 
 import org.joml.Vector2f;
 import org.joml.Vector3f;
+import org.joml.Quaternionf;
 
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -916,7 +918,7 @@ public final class BlockbusterModelLoader implements IModelLoader
             if (limb.size.x > limb.size.y)
             {
                 x = limb.size.x * (10F / 12F) / 16F;
-                slot.transform.rotate2.y = (float) Math.toRadians(-90F);
+                setHeldItemRotation(slot.transform, (float) Math.toRadians(-90F));
             }
 
             slot.transform.translate.set(x, y, z);
@@ -928,6 +930,41 @@ public final class BlockbusterModelLoader implements IModelLoader
         slot.transform.scale.set(limb.itemScale, limb.itemScale, limb.itemScale);
 
         return slot;
+    }
+
+    /**
+     * Apply the secondary held-item rotation without linking against either
+     * fork-specific Transform layout. Base and CML expose the legacy
+     * {@code rotate2} field; BBS FS 2.5.2 replaced it with quaternion mode.
+     */
+    private static void setHeldItemRotation(Transform transform, float y)
+    {
+        try
+        {
+            Field rotate2 = Transform.class.getField("rotate2");
+
+            ((Vector3f) rotate2.get(transform)).y = y;
+        }
+        catch (NoSuchFieldException e)
+        {
+            /* FS 2.5.2: reproduce rotateX(PI).rotateY(y), the exact order of
+             * the old rotate + rotate2 matrices, using its quaternion API. */
+            try
+            {
+                Transform.class.getMethod("setModeQuaternion").invoke(transform);
+                Quaternionf quat = (Quaternionf) Transform.class.getField("quat").get(transform);
+
+                quat.rotationX((float) Math.PI).rotateY(y);
+            }
+            catch (ReflectiveOperationException ignored)
+            {
+                /* Unknown future layout: retain the primary rotation below. */
+            }
+        }
+        catch (ReflectiveOperationException ignored)
+        {
+            /* Legacy field exists but is inaccessible: retain primary rotation. */
+        }
     }
 
     /**
