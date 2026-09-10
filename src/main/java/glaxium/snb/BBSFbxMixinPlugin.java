@@ -13,13 +13,14 @@ import java.util.Set;
  * Fork gating for this addon's mixins.
  *
  * <p>{@code mixin.base}, {@code mixin.fs} and {@code mixin.cml} gate a mixin
- * to exactly one fork -- used where Base/FS/CML actually disagree on method
- * signature (see the doc comments on those classes). {@code mixin.basecml}
- * and {@code mixin.basefs} gate a mixin to two of the three forks. The
- * {@code basefs} parallel-loader mixins exist in source but are currently
- * <b>not listed</b> in {@code bbs_snb_addon.mixins.json} (the host model map
- * is not safe to mutate during a concurrent reload). Everything else targets
- * classes identical across all three forks and is left ungated.</p>
+ * to one fork family -- used where Base/FS/CML/BBS&nbsp;2.1 disagree on
+ * method signature. {@code mixin.basecml} and {@code mixin.basefs} gate a
+ * mixin to two of the forks. BBS&nbsp;2.1 reuses most FS render mixins but
+ * skips FS-only hooks that target APIs it does not ship
+ * ({@code FormUtils.collectPropertyPaths}, three-arg
+ * {@code BOBJModelSimpleVAO.processData}); emoticon simple armor on
+ * FS21 uses {@code BOBJModelArmorMixinFS21} (two-arg geometric hinge)
+ * instead of the Base/CML merged-{@code FBXCompiledData} path.</p>
  *
  * <p>Runs during mixin bootstrap, so it must never touch an actual BBS class
  * -- {@link BBSFork#fromLoadedMods()} only reads Fabric Loader metadata for
@@ -56,7 +57,21 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 
         if (mixinClassName.startsWith(FS_PACKAGE))
         {
-            return fork == BBSFork.FS;
+            if (fork == BBSFork.FS)
+            {
+                /* Wemppy FS uses the 3-arg armor hinge only. */
+                return !mixinClassName.endsWith(".BOBJModelArmorMixinFS21");
+            }
+
+            if (fork == BBSFork.FS21)
+            {
+                /* FS21 matches FS render/material hooks, but not FormUtils /
+                 * the 3-arg armor hinge. Armor uses BOBJModelArmorMixinFS21. */
+                return !mixinClassName.endsWith(".FormUtilsMixinFS")
+                        && !mixinClassName.endsWith(".BOBJModelArmorMixinFS");
+            }
+
+            return false;
         }
 
         if (mixinClassName.startsWith(CML_PACKAGE))
@@ -85,12 +100,14 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 
         if (mixinClassName.startsWith(BASECML_PACKAGE))
         {
+            /* Merged FBXCompiledData armor hinge is Base/CML only. FS21 keeps
+             * per-mesh VAOs and uses BOBJModelArmorMixinFS21 instead. */
             return fork == BBSFork.BASE || fork == BBSFork.CML;
         }
 
         if (mixinClassName.startsWith(BASEFS_PACKAGE))
         {
-            return fork == BBSFork.BASE || fork == BBSFork.FS;
+            return fork == BBSFork.BASE || fork == BBSFork.FS || fork == BBSFork.FS21;
         }
 
         return true;

@@ -2,40 +2,34 @@ package glaxium.snb.compat;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
+import net.fabricmc.loader.api.metadata.CustomValue;
+import net.fabricmc.loader.api.metadata.ModMetadata;
 
 import java.util.Optional;
 
 /**
  * Which BBS this addon is currently running on top of.
  *
- * <p>Only used for one thing: telling {@link glaxium.snb.BBSFbxMixinPlugin}
- * which of the three {@code ModelInstanceMixin} variants to apply --
- * {@code ModelInstance.render(...)}'s final parameter is the one place Base,
- * FS and CML genuinely disagree (see the mixin/base, mixin/fs, mixin/cml
- * doc comments). Every other mixin in this addon is fork-agnostic and
- * doesn't need this class at all.</p>
- *
- * <p>Detection is loader-metadata only ({@link #fromLoadedMods()}), which
- * makes it safe to call from a mixin config plugin during mixin bootstrap --
- * touching an actual BBS class that early force-loads it before mixins have
- * been applied to it, silently breaking every mixin targeting it. This
- * pattern (and the CML-name-vs-mod-id caveat below) is carried over from
- * {@code BBS-Minema-Addon}'s own {@code compat/BBSFork.java}, written for
- * its BBS Addon Engine port.</p>
+ * <p>Used by {@link glaxium.snb.BBSFbxMixinPlugin} to pick fork-gated mixins
+ * where Base / Wemppy FS / CML / BBS 2.1 (FS fork) disagree on method
+ * signatures. Detection is loader-metadata only ({@link #fromLoadedMods()}),
+ * which is safe during mixin bootstrap.</p>
  */
 public enum BBSFork
 {
     BASE("BBS Base"),
     FS("BBS FS"),
+    /** McHorse/community BBS 2.1 line — FS-shaped render APIs, older SimpleVAO/FormUtils. */
+    FS21("BBS 2.1 (FS fork)"),
     CML("BBS CML Edition");
 
-    /** Present in FS, absent in Base. Fully qualified. */
+    /** Present in FS / FS21, absent in Base. Fully qualified. */
     private static final String FS_ONLY_CLASS = "mchorse.bbs_mod.ui.film.replays.ReplayListEntry";
 
     private static final String[] FS_MOD_IDS = {"bbs_fs", "bbs-fs", "bbsfs", "bbs_mod_fs"};
     private static final String[] CML_MOD_IDS = {"bbs_cml", "bbs-cml", "bbscml", "bbs_cml_edition", "bbs_mod_cml"};
 
-    /** The mod id every known fork -- Base, FS, and CML -- actually publishes under. */
+    /** The mod id every known fork -- Base, FS, FS21, and CML -- actually publishes under. */
     private static final String BBS_MOD_ID = "bbs";
 
     private static BBSFork cached;
@@ -52,6 +46,12 @@ public enum BBSFork
         return this.label;
     }
 
+    /** True for Wemppy FS and the BBS 2.1 FS fork (shared FS-shaped render hooks). */
+    public boolean isFsFamily()
+    {
+        return this == FS || this == FS21;
+    }
+
     /** Loader-metadata only. Safe during mixin bootstrap. */
     public static BBSFork fromLoadedMods()
     {
@@ -66,9 +66,13 @@ public enum BBSFork
         {
             fork = CML;
         }
-        else if (anyLoaded(FS_MOD_IDS))
+        else if (isWemppyFsByName() || anyLoaded(FS_MOD_IDS))
         {
             fork = FS;
+        }
+        else if (isFs21ByMetadata())
+        {
+            fork = FS21;
         }
         else if (classPresent(FS_ONLY_CLASS))
         {
@@ -95,6 +99,29 @@ public enum BBSFork
      */
     private static boolean isCmlByName()
     {
+        String name = bbsName();
+
+        return name != null && name.toUpperCase().contains("CML");
+    }
+
+    /**
+     * Wemppy FS publishes name "BBS FS mod". Do not match description text
+     * here — BBS 2.1 uses description "BBS FS fork" with name "BBS mod".
+     */
+    private static boolean isWemppyFsByName()
+    {
+        String name = bbsName();
+
+        return name != null && name.toUpperCase().contains("FS");
+    }
+
+    /**
+     * BBS 2.1 (FS fork): shared id/name with Base, distinguished by
+     * description, custom {@code bbs:git_commit}, or version {@code 2.1-*}
+     * (not CML's {@code 2.1.1-*}).
+     */
+    private static boolean isFs21ByMetadata()
+    {
         try
         {
             Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(BBS_MOD_ID);
@@ -104,13 +131,47 @@ public enum BBSFork
                 return false;
             }
 
-            String name = container.get().getMetadata().getName();
+            ModMetadata meta = container.get().getMetadata();
+            String description = meta.getDescription();
 
-            return name != null && name.toUpperCase().contains("CML");
+            if (description != null && description.toUpperCase().contains("BBS FS FORK"))
+            {
+                return true;
+            }
+
+            CustomValue git = meta.getCustomValue("bbs:git_commit");
+
+            if (git != null && git.getType() == CustomValue.CvType.STRING)
+            {
+                return true;
+            }
+
+            String version = meta.getVersion().getFriendlyString();
+
+            return version != null && version.startsWith("2.1-");
         }
         catch (Throwable t)
         {
             return false;
+        }
+    }
+
+    private static String bbsName()
+    {
+        try
+        {
+            Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(BBS_MOD_ID);
+
+            if (container.isEmpty())
+            {
+                return null;
+            }
+
+            return container.get().getMetadata().getName();
+        }
+        catch (Throwable t)
+        {
+            return null;
         }
     }
 

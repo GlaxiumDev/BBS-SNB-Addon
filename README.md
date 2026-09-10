@@ -6,7 +6,7 @@ old (now inactive) Minecraft mod
 affiliated with it.
 
 Adds FBX and glTF (`.gltf` / `.glb`) model loading support to **BBS** -- runs unmodified on **BBS Base**,
-**BBS FS**, and **BBS CML EDITION**, with a single mixin plugin
+**BBS FS**, **BBS 2.1 (FS fork)**, and **BBS CML EDITION**, with a single mixin plugin
 (`BBSFbxMixinPlugin`) picking the right fork-specific code at load time. No
 BBS Addon Engine required.
 
@@ -49,6 +49,7 @@ BBS Addon Engine required.
 |---|---|
 | BBS Base | Supported |
 | BBS FS | Supported |
+| BBS 2.1 (FS fork) | Supported |
 | BBS CML EDITION | Supported |
 
 Only one mixin variant per fork-divergent target is applied at runtime
@@ -72,12 +73,17 @@ once when its turn arrives.
 ## Building
 
 1. Drop the released jar for whichever BBS fork you're building against
-   (Base, FS, or CML EDITION) into `libs/`.
+   (Base, FS, or CML EDITION) into `libs/`. **BBS 2.1** is supported at
+   runtime (detected as a fourth fork); compile against Base, FS, or CML —
+   not the `bbs-2.1-*.jar` itself.
 2. `./gradlew build`
 3. Output jar lands in `build/libs/`.
 
-To select CML explicitly when multiple jars are present:
+To select a fork explicitly when multiple jars are present:
 `./gradlew build -Pbbs_jar=libs/bbs-cml-2.1.1-1.21.1.jar`.
+
+To compile against CML and run against BBS 2.1:
+`./gradlew runClient -Pbbs_jar=libs/bbs-cml-2.1.1-1.21.1.jar -Pbbs_runtime=libs/bbs-2.1-1.21.1.jar`.
 
 ## Blockbench importer and exporter
 
@@ -98,6 +104,6 @@ though the rendered geometry and rig data are retained.
 
 This project began as a fork of [BBS FBX Addon](https://github.com/ElGatoPro300/BBS-FBX-Addon)
 by ElGatoPro300 (originally CML-only), since substantially rewritten to
-support all three BBS forks and to add per-material rendering, shape keys,
+support all BBS forks and to add per-material rendering, shape keys,
 and armature baking. See [LICENSE.md](LICENSE.md) for full attribution and
 license terms.

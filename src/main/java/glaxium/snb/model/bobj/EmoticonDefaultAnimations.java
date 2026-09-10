@@ -1,5 +1,7 @@
 package glaxium.snb.model.bobj;
 
+import glaxium.snb.compat.AnimationPartCompat;
+
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJBone;
@@ -207,6 +209,7 @@ public final class EmoticonDefaultAnimations
                 }
             }
 
+            AnimationPartCompat.commit(part);
             animation.parts.put(entry.getKey(), part);
         }
 
@@ -219,7 +222,7 @@ public final class EmoticonDefaultAnimations
             animation.parts.put("head", head);
             fillHeadVariables(parser, head);
         }
-        else if (head.rx.isEmpty())
+        else if (AnimationPartCompat.isRotationEmpty(head))
         {
             fillHeadVariables(parser, head);
         }
@@ -231,18 +234,14 @@ public final class EmoticonDefaultAnimations
     {
         return switch (channel.path)
         {
-            case "location.x" -> part.x;
-            case "location.y" -> part.y;
-            case "location.z" -> part.z;
-            case "rotation.x" -> part.rx;
-            case "rotation.y" -> part.ry;
-            case "rotation.z" -> part.rz;
-            case "scale.x" -> part.sx;
-            case "scale.y" -> part.sy;
-            case "scale.z" -> part.sz;
-            case "location" -> axis(part.x, part.y, part.z, channel.index);
-            case "scale" -> axis(part.sx, part.sy, part.sz, channel.index);
-            default -> axis(part.rx, part.ry, part.rz, channel.index);
+            case "location.x", "location.y", "location.z",
+                 "rotation.x", "rotation.y", "rotation.z",
+                 "scale.x", "scale.y", "scale.z" ->
+                    AnimationPartCompat.axisChannel(part, channel.path);
+            case "location", "scale", "rotation" ->
+                    AnimationPartCompat.axisChannel(part, channel.path, channel.index);
+            default ->
+                    AnimationPartCompat.axisChannel(part, "rotation", channel.index);
         };
     }
 
@@ -358,21 +357,6 @@ public final class EmoticonDefaultAnimations
         }
     }
 
-    private static KeyframeChannel<MolangExpression> axis(
-            KeyframeChannel<MolangExpression> x,
-            KeyframeChannel<MolangExpression> y,
-            KeyframeChannel<MolangExpression> z,
-            int index)
-    {
-        return switch (index)
-        {
-            case 0 -> x;
-            case 1 -> y;
-            case 2 -> z;
-            default -> null;
-        };
-    }
-
     private static void copyKeyframes(
             MolangParser parser,
             KeyframeChannel<MolangExpression> keyframeChannel,
@@ -398,8 +382,11 @@ public final class EmoticonDefaultAnimations
 
     private static void fillHeadVariables(MolangParser parser, AnimationPart head)
     {
-        head.rx.insert(0F, parseExpression(parser, "query.head_pitch / 180 * " + Math.PI));
-        head.ry.insert(0F, parseExpression(parser, "-query.head_yaw / 180 * " + Math.PI));
+        AnimationPartCompat.insertRotation(
+                head,
+                0F,
+                parseExpression(parser, "query.head_pitch / 180 * " + Math.PI),
+                parseExpression(parser, "-query.head_yaw / 180 * " + Math.PI));
     }
 
     private static MolangExpression parseExpression(MolangParser parser, String expression)

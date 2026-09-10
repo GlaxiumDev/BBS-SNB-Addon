@@ -1,5 +1,7 @@
 package glaxium.snb.model.fbx.loaders;
 
+import glaxium.snb.compat.AnimationPartCompat;
+
 import mchorse.bbs_mod.bobj.BOBJAction;
 import mchorse.bbs_mod.bobj.BOBJChannel;
 import mchorse.bbs_mod.bobj.BOBJGroup;
@@ -17,8 +19,8 @@ import java.util.Map;
 
 /**
  * Converts the BOBJAction/BOBJGroup/BOBJChannel data FBXConverter produces
- * into BBS FS's own Animations/Animation/AnimationPart/KeyframeChannel
- * representation.
+ * into BBS's Animations/Animation/AnimationPart/KeyframeChannel
+ * representation (per-axis on Base/FS/CML, vector channels on BBS&nbsp;2.1).
  */
 public final class FBXAnimationConverter
 {
@@ -41,18 +43,8 @@ public final class FBXAnimationConverter
 
                 for (BOBJChannel channel : group.channels)
                 {
-                    KeyframeChannel<MolangExpression> targetChannel = switch (channel.path) {
-                        case "location.x" -> part.x;
-                        case "location.y" -> part.y;
-                        case "location.z" -> part.z;
-                        case "rotation.x" -> part.rx;
-                        case "rotation.y" -> part.ry;
-                        case "rotation.z" -> part.rz;
-                        case "scale.x" -> part.sx;
-                        case "scale.y" -> part.sy;
-                        case "scale.z" -> part.sz;
-                        default -> null;
-                    };
+                    KeyframeChannel<MolangExpression> targetChannel =
+                            AnimationPartCompat.axisChannel(part, channel.path);
 
                     if (targetChannel != null)
                     {
@@ -63,6 +55,7 @@ public final class FBXAnimationConverter
                     }
                 }
 
+                AnimationPartCompat.commit(part);
                 animation.parts.put(group.name, part);
             }
 

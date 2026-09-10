@@ -1,11 +1,10 @@
 pluginManagement {
 	repositories {
+		// Local-only plugin resolution. Always build with --offline.
 		maven {
-			name = 'Fabric'
-			url = 'https://maven.fabricmc.net/'
+			name = 'OfflineLoom'
+			url = uri("${rootDir}/libs/offline-maven")
 		}
-		mavenCentral()
-		gradlePluginPortal()
 	}
 }
 
