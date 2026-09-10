@@ -61,12 +61,13 @@ context, plus the moved animation-state and film track builders.
 Use **Fabric Loader 0.19.3 or newer**, as required by that CML
 release. The older CML hook signatures remain supported.
 
-Version 1.1.2 spreads new CML thumbnail renders across frames, with at most
-two new cache entries per frame and a 2 ms allowance before starting a
-second. Multi-material model cards use cached previews; selected and hovered
-cards retain CML's live rendering. A single expensive preview can still
-exceed that allowance. This reduces bursts of preview work, but does not
-impose a limit on total Minecraft memory use.
+Version **1.2.0** spreads new CML thumbnail renders across frames: at most
+**one** new FBO cache bake per frame, no loader priority-queue from
+`isPreviewReady`, and ModelForm cards (including selected/hovered) use the
+cached path instead of live UI renders. Opening the morph menu with many
+FBX/glTF models previously could stall the render thread for minutes.
+Cached blits stay cheap; the first bake of a huge model can still hitch
+once when its turn arrives.
 
 ## Building
 
