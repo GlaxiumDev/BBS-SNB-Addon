@@ -12,6 +12,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Adds the per-mesh material name Base/CML's {@code ModelMesh} is missing
@@ -63,6 +64,12 @@ public abstract class ModelMeshMixin implements IModelMeshMaterial
                         normals.getFloat(i * 3 + 2)));
             }
         }
+    }
+
+    @Inject(method = "copy", at = @At("RETURN"), require = 0, remap = false)
+    private void bbsFbx$copyMaterial(CallbackInfoReturnable<ModelMesh> ci)
+    {
+        ((IModelMeshMaterial) ci.getReturnValue()).bbsFbx$setMaterial(this.bbsFbx$material);
     }
 
     @Override
