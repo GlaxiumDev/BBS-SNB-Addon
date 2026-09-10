@@ -834,23 +834,51 @@ public final class BlockbusterModelLoader implements IModelLoader
 
             if (limb.lookX || limb.lookY)
             {
-                ModelInstanceCompat.setView(instance, group, limb.lookX);
+                try
+                {
+                    ModelInstanceCompat.setView(instance, group, limb.lookX);
+                }
+                catch (RuntimeException e)
+                {
+                    System.err.println("[BBS FBX] Skipping look-at for limb '" + group + "': " + e.getMessage());
+                }
             }
 
             if ("right".equals(limb.holding))
             {
-                ModelInstanceCompat.getItemsMain(instance).add(itemSlot(group, group + "_item", limb, groupsContain(instance, group + "_item")));
+                try
+                {
+                    ModelInstanceCompat.getItemsMain(instance).add(itemSlot(group, group + "_item", limb, groupsContain(instance, group + "_item")));
+                }
+                catch (RuntimeException e)
+                {
+                    System.err.println("[BBS FBX] Skipping main-hand slot for limb '" + group + "': " + e.getMessage());
+                }
             }
             else if ("left".equals(limb.holding))
             {
-                ModelInstanceCompat.getItemsOff(instance).add(itemSlot(group, group + "_item", limb, groupsContain(instance, group + "_item")));
+                try
+                {
+                    ModelInstanceCompat.getItemsOff(instance).add(itemSlot(group, group + "_item", limb, groupsContain(instance, group + "_item")));
+                }
+                catch (RuntimeException e)
+                {
+                    System.err.println("[BBS FBX] Skipping off-hand slot for limb '" + group + "': " + e.getMessage());
+                }
             }
 
             ArmorType armorType = armorType(limb.slot);
 
             if (armorType != null)
             {
-                ModelInstanceCompat.getArmorSlots(instance).put(armorType, armorSlot(group, limb, armorType));
+                try
+                {
+                    ModelInstanceCompat.getArmorSlots(instance).put(armorType, armorSlot(group, limb, armorType));
+                }
+                catch (RuntimeException e)
+                {
+                    System.err.println("[BBS FBX] Skipping armor slot for limb '" + group + "': " + e.getMessage());
+                }
             }
         }
 
@@ -858,7 +886,14 @@ public final class BlockbusterModelLoader implements IModelLoader
 
         if (sneaking != null)
         {
-            ModelInstanceCompat.setSneakingPose(instance, sneaking);
+            try
+            {
+                ModelInstanceCompat.setSneakingPose(instance, sneaking);
+            }
+            catch (RuntimeException e)
+            {
+                System.err.println("[BBS FBX] Skipping sneaking pose: " + e.getMessage());
+            }
         }
 
         Map<String, Pose> allPoses = new LinkedHashMap<>();
