@@ -61,6 +61,17 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 
         if (mixinClassName.startsWith(CML_PACKAGE))
         {
+            if (mixinClassName.equals(CML_PACKAGE + "UIAnimationStateEditorMixinCML")
+                    || mixinClassName.equals(CML_PACKAGE + "UIFormPropertyTrackSheetsMixinCML"))
+            {
+                // Inspect the resource without loading a class before its mixins apply.
+                boolean sharedTrackSheets = BBSFbxMixinPlugin.class.getClassLoader().getResource(
+                        "mchorse/bbs_mod/ui/forms/editors/utils/UIFormPropertyTrackSheets.class") != null;
+                boolean modernMixin = mixinClassName.endsWith(".UIFormPropertyTrackSheetsMixinCML");
+
+                return fork == BBSFork.CML && sharedTrackSheets == modernMixin;
+            }
+
             return fork == BBSFork.CML;
         }
 

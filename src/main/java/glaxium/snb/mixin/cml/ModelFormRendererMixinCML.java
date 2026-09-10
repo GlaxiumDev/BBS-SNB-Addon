@@ -14,27 +14,24 @@ import mchorse.bbs_mod.forms.entities.IEntity;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.forms.forms.ModelForm;
 import mchorse.bbs_mod.forms.renderers.ModelFormRenderer;
-import mchorse.bbs_mod.ui.framework.elements.utils.StencilMap;
-import mchorse.bbs_mod.utils.colors.Color;
 
-import net.minecraft.client.gl.ShaderProgram;
-import net.minecraft.client.util.math.MatrixStack;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import com.llamalad7.mixinextras.sugar.Local;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.function.Supplier;
 
 /**
  * CML-fork variant of the material-texture override push/pop, identical to
  * {@code ModelFormRendererMixinBase} except for {@code renderModel}'s extra
- * trailing {@code boolean renderEquipment} parameter, which only exists in
- * the CML fork's bytecode.
+ * {@code boolean renderEquipment} parameter and, since CML 2.1.1, trailing
+ * equipment matrices and rendering context. Argument capture reads only the
+ * fields needed here, accepting both signatures without CML-only context types.
  *
  * <p>Gated to the CML fork by {@code glaxium.snb.BBSFbxMixinPlugin}.
  * Keeping the base and CML variants in separate fork-gated mixins (the same
@@ -46,10 +43,11 @@ import java.util.function.Supplier;
 public abstract class ModelFormRendererMixinCML
 {
     @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
-    private void bbsFbx$pushMaterialOverrides(
-            IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
-            int light, int overlay, Color color, boolean ui, StencilMap stencilMap, float transition,
-            boolean renderEquipment, CallbackInfo info)
+    private void bbsFbx$pushMaterialOverrides(CallbackInfo info,
+            @Local(argsOnly = true) IEntity target,
+            @Local(argsOnly = true) ModelInstance model,
+            @Local(argsOnly = true, ordinal = 0) boolean ui,
+            @Local(argsOnly = true, ordinal = 1) boolean renderEquipment)
     {
         CurrentEmoticonArmor.push(target, model, renderEquipment && !ui);
         Form form = ((FormRendererAccessor) (Object) this).bbsFbx$getForm();
@@ -132,10 +130,7 @@ public abstract class ModelFormRendererMixinCML
     }
 
     @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
-    private void bbsFbx$popMaterialOverrides(
-            IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
-            int light, int overlay, Color color, boolean ui, StencilMap stencilMap, float transition,
-            boolean renderEquipment, CallbackInfo info)
+    private void bbsFbx$popMaterialOverrides(CallbackInfo info)
     {
         CurrentMaterialTextureOverrides.pop();
         CurrentMaterialPbrOverrides.pop();

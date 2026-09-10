@@ -35,6 +35,9 @@ import java.util.Map;
  * (its copy is a different class shape), so this mixin is gated to CML by
  * {@code glaxium.snb.BBSFbxMixinPlugin}.</p>
  *
+ * <p>CML 2.1.1 moved channel construction to {@code rebuildChannelsList};
+ * the redirects select both names and require a matching call in at least one.
+ *
  * <p>Beyond the gate it also lays the material tracks out the way the film
  * editor should show them: on a multi-material model the whole-model
  * {@code texture} track (and its nested whole-model PBR tracks) is hidden,
@@ -90,7 +93,7 @@ public abstract class UIReplaysEditorMixinCML
      * PBR intensity) rather than the float factory's {@code 0.0}.
      */
     @Redirect(
-            method = "updateChannelsList()V",
+            method = {"updateChannelsList()V", "rebuildChannelsList(Z)V"},
             at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/forms/FormUtils;getProperty(Lmchorse/bbs_mod/forms/forms/Form;Ljava/lang/String;)Lmchorse/bbs_mod/settings/values/base/BaseValueBasic;"),
             remap = false
     )
@@ -123,7 +126,7 @@ public abstract class UIReplaysEditorMixinCML
      * sub-form path strings, which is passed straight through untouched.
      */
     @Redirect(
-            method = "updateChannelsList()V",
+            method = {"updateChannelsList()V", "rebuildChannelsList(Z)V"},
             at = @At(value = "INVOKE", target = "Ljava/util/List;sort(Ljava/util/Comparator;)V"),
             remap = false
     )

@@ -58,6 +58,7 @@ public abstract class ModelInstanceVAOMixin implements IModelInstanceMaterialVao
 
     @Unique private Map<ModelGroup, Map<String, ModelVAO>> bbsFbx$materialVaos = new HashMap<>();
     @Unique private boolean bbsFbx$materialVaosReady = false;
+    @Unique private boolean bbsFbx$ownsMaterialVaos = true;
 
     @Override
     public Map<ModelGroup, Map<String, ModelVAO>> bbsFbx$getMaterialVaos()
@@ -83,7 +84,8 @@ public abstract class ModelInstanceVAOMixin implements IModelInstanceMaterialVao
             return;
         }
 
-        this.bbsFbx$materialVaos.clear();
+        this.bbsFbx$releaseMaterialVaos();
+        this.bbsFbx$ownsMaterialVaos = true;
         this.bbsFbx$materialVaosReady = true;
 
         MinecraftClient.getInstance().execute(() ->
@@ -104,14 +106,58 @@ public abstract class ModelInstanceVAOMixin implements IModelInstanceMaterialVao
         }
     }
 
+    /** CML 2.1.1 caches per-form copies and borrows the global GPU buffers. */
+    @Inject(method = "borrowVaosFrom", at = @At("HEAD"), require = 0, remap = false)
+    private void bbsFbx$borrowMaterialVaos(ModelInstance source, CallbackInfo ci)
+    {
+        if (source == null || source == (Object) this
+                || !(this.model instanceof Model targetModel) || !(source.model instanceof Model sourceModel))
+        {
+            return;
+        }
+
+        Map<ModelGroup, Map<String, ModelVAO>> sourceVaos =
+                ((IModelInstanceMaterialVaos) source).bbsFbx$getMaterialVaos();
+
+        if (sourceVaos.isEmpty())
+        {
+            return;
+        }
+
+        this.bbsFbx$releaseMaterialVaos();
+        this.bbsFbx$ownsMaterialVaos = false;
+
+        for (ModelGroup targetGroup : targetModel.getAllGroups())
+        {
+            ModelGroup sourceGroup = sourceModel.getGroup(targetGroup.id);
+            Map<String, ModelVAO> buffers = sourceVaos.get(sourceGroup);
+
+            if (buffers != null)
+            {
+                this.bbsFbx$materialVaos.put(targetGroup, buffers);
+            }
+        }
+
+        this.bbsFbx$materialVaosReady = !this.bbsFbx$materialVaos.isEmpty();
+    }
+
     @Inject(method = "delete", at = @At("HEAD"), remap = false)
     private void bbsFbx$deleteMaterialVaos(CallbackInfo ci)
     {
-        for (Map<String, ModelVAO> groupVaos : this.bbsFbx$materialVaos.values())
+        this.bbsFbx$releaseMaterialVaos();
+    }
+
+    @Unique
+    private void bbsFbx$releaseMaterialVaos()
+    {
+        if (this.bbsFbx$ownsMaterialVaos)
         {
-            for (ModelVAO vao : groupVaos.values())
+            for (Map<String, ModelVAO> groupVaos : this.bbsFbx$materialVaos.values())
             {
-                vao.delete();
+                for (ModelVAO vao : groupVaos.values())
+                {
+                    vao.delete();
+                }
             }
         }
 

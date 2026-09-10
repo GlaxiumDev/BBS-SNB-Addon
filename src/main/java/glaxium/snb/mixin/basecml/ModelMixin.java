@@ -6,6 +6,10 @@ import mchorse.bbs_mod.resources.Link;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import mchorse.bbs_mod.cubic.data.model.Model;
 
 import java.util.Collections;
 import java.util.List;
@@ -36,6 +40,13 @@ public abstract class ModelMixin implements IModelMaterialTextures
 {
     @Unique private List<String> bbsFbx$materials = Collections.emptyList();
     @Unique private Map<String, Link> bbsFbx$materialTextures = Collections.emptyMap();
+
+    @Inject(method = "copy()Lmchorse/bbs_mod/cubic/data/model/Model;", at = @At("RETURN"), require = 0, remap = false)
+    private void bbsFbx$copyMaterials(CallbackInfoReturnable<Model> ci)
+    {
+        ((IModelMaterialTextures) ci.getReturnValue()).bbsFbx$setMaterialTextures(
+                this.bbsFbx$materials, this.bbsFbx$materialTextures);
+    }
 
     @Override
     public void bbsFbx$setMaterialTextures(List<String> materials, Map<String, Link> materialTextures)

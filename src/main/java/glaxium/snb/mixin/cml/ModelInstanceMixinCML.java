@@ -23,6 +23,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -38,7 +39,9 @@ import java.util.function.Supplier;
  * texture parameter at all}, FS takes a
  * {@code Function<String, Link> textureResolver}
  * ({@link glaxium.snb.mixin.fs.ModelInstanceMixinFS}), and CML takes
- * a plain {@code Link defaultTexture} (this class). Everything past the
+ * a {@code Link defaultTexture} in older releases or a texture resolver
+ * function in CML 2.1.1. The unused argument is coerced to {@code Object}
+ * so both signatures remain supported by this class. Everything past the
  * signature -- the redirected call and its target,
  * {@code BOBJModelVAO.updateMesh} -- is identical across all three, hence the
  * three copies changing only their {@code method} descriptor rather than
@@ -64,7 +67,7 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     private void bbsFbx$renderLegacyBB(
             MatrixStack stack, Supplier<ShaderProgram> program, Color color,
             int light, int overlay, StencilMap stencilMap, ShapeKeys keys,
-            Link defaultTexture, CallbackInfo ci)
+            @Coerce Object textureResolver, CallbackInfo ci)
     {
         if (this.model instanceof LegacyBBModel legacy)
         {
@@ -82,7 +85,7 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
             BOBJModelVAO vao, StencilMap stencilMap,
             MatrixStack stack, Supplier<ShaderProgram> program, Color color,
             int light, int overlay, StencilMap stencilMap2, ShapeKeys keys,
-            Link defaultTexture)
+            @Coerce Object textureResolver)
     {
         if (vao instanceof IShapeKeyHolder holder)
         {
