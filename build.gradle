@@ -11,6 +11,11 @@ base {
 }
 
 repositories {
+	// Local offline mirror first so --offline never hits the network.
+	maven {
+		name = 'OfflineMaven'
+		url = uri("${rootDir}/libs/offline-maven")
+	}
 	// None of the BBS forks (Base/FS/CML) are published to a maven repository:
 	// drop the released jar for whichever one you're building against into
 	// the "libs" folder next to this file.
@@ -40,13 +45,24 @@ dependencies {
 	// Select one BBS fork explicitly with -Pbbs_jar=libs/<file>.jar. The
 	// fallback preserves the convenient local-development behavior where the
 	// single enabled jar in libs is used automatically. Fork-specific mixin
-	// sources are written to compile against any fork (FS-only APIs are
-	// reached through reflection and gated by BBSFbxMixinPlugin at runtime),
-	// so switching forks in libs/ never breaks the build.
+	// sources are written to compile against Base/FS/CML (FS-only APIs are
+	// reached through reflection and gated by BBSFbxMixinPlugin at runtime).
+	// Optional -Pbbs_runtime=libs/<file>.jar swaps the runtime BBS jar
+	// (e.g. compile against CML, run against BBS 2.1).
 	def selectedBbsJar = providers.gradleProperty("bbs_jar").orNull
-	modImplementation selectedBbsJar != null
-		? files(selectedBbsJar)
-		: fileTree(dir: "libs", include: "*.jar")
+	def selectedBbsRuntime = providers.gradleProperty("bbs_runtime").orNull
+
+	if (selectedBbsRuntime != null)
+	{
+		modCompileOnly files(selectedBbsJar != null ? selectedBbsJar : selectedBbsRuntime)
+		modLocalRuntime files(selectedBbsRuntime)
+	}
+	else
+	{
+		modImplementation selectedBbsJar != null
+			? files(selectedBbsJar)
+			: fileTree(dir: "libs", include: "*.jar")
+	}
 
 	// Model parsing is implemented in Java and uses Gson/JOML already shipped
 	// by Minecraft. No native libraries are bundled in the addon jar.

@@ -1,6 +1,7 @@
 package glaxium.snb.anim;
 
 import glaxium.snb.model.fbx.loaders.IFbxModel;
+import glaxium.snb.compat.ModelBonesCompat;
 
 import mchorse.bbs_mod.bobj.BOBJBone;
 import mchorse.bbs_mod.cubic.IModel;
@@ -79,7 +80,7 @@ public final class HeadLookAt
         final float yawSign = -1.0F;
         final float pitchSign = 1.0F;
 
-        for (BOBJBone bone : model.getAllBOBJBones())
+        for (BOBJBone bone : ModelBonesCompat.getAllBOBJBones(model))
         {
             if (bone != null && boneName.equals(bone.name))
             {

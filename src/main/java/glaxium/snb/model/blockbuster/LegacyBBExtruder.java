@@ -1,5 +1,7 @@
 package glaxium.snb.model.blockbuster;
 
+import glaxium.snb.compat.PixelsCompat;
+
 import mchorse.bbs_mod.BBSModClient;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.utils.resources.Pixels;
@@ -199,7 +201,7 @@ final class LegacyBBExtruder
     private static boolean opaque(Pixels pixels, int x, int y)
     {
         if (x < 0 || y < 0 || x >= pixels.width || y >= pixels.height) return false;
-        return ((pixels.getARGB()[y * pixels.width + x] >>> 24) & 0xff) >= 0x80;
+        return PixelsCompat.isOpaque(pixels, x, y);
     }
 
     private static Mesh mesh(VoxelGrid grid, LegacyBBModel model, BlockbusterModelLoader.LegacyLimb limb, int ef)

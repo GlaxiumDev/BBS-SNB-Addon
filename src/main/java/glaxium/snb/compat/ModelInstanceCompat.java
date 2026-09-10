@@ -12,10 +12,12 @@ import org.joml.Vector3f;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.AbstractList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-/** Bridges the public-field Base/CML model API and FS's ModelConfig API. */
+/** Bridges the public-field Base/CML model API and FS / BBS&nbsp;2.1 ModelConfig APIs. */
 public final class ModelInstanceCompat
 {
     private ModelInstanceCompat() {}
@@ -33,17 +35,24 @@ public final class ModelInstanceCompat
         if (current instanceof Vector3f vector)
         {
             vector.set(value);
+            return;
         }
-        else
+
+        Object viaGetter = invokeNoArgs(instance, "getScale");
+
+        if (viaGetter instanceof Vector3f vector)
         {
-            try
-            {
-                setConfigValue(instance, "scale", new Vector3f(value));
-            }
-            catch (ReflectiveOperationException e)
-            {
-                throw incompatible("scale", e);
-            }
+            vector.set(value);
+            return;
+        }
+
+        try
+        {
+            setConfigValue(instance, "scale", new Vector3f(value));
+        }
+        catch (ReflectiveOperationException e)
+        {
+            throw incompatible("scale", e);
         }
     }
 
@@ -70,8 +79,57 @@ public final class ModelInstanceCompat
 
             Object config = read(instance, "config");
             Object lookAt = read(config, "lookAt");
-            setValue(read(lookAt, "head"), head);
-            setValue(read(lookAt, "pitch"), pitch);
+
+            /* Wemppy FS: LookAtValue with nested head/pitch settings. */
+            Object headSetting = read(lookAt, "head");
+
+            if (headSetting != null)
+            {
+                setValue(headSetting, head);
+                setValue(read(lookAt, "pitch"), pitch);
+                return;
+            }
+
+            /* BBS 2.1: config.lookAt is ValueView; value starts null. */
+            if (lookAt != null)
+            {
+                View view = null;
+                Object existing = invokeNoArgs(lookAt, "get");
+
+                if (existing instanceof View current)
+                {
+                    view = current;
+                }
+                else
+                {
+                    view = new View();
+                }
+
+                view.headBone = head;
+                view.pitch = pitch;
+
+                try
+                {
+                    setValue(lookAt, view);
+                }
+                catch (ReflectiveOperationException e)
+                {
+                    /* Last resort: write BaseValueBasic.value directly. */
+                    Field valueField = findDeclaredField(lookAt.getClass(), "value");
+
+                    if (valueField == null)
+                    {
+                        throw e;
+                    }
+
+                    valueField.setAccessible(true);
+                    valueField.set(lookAt, view);
+                }
+
+                return;
+            }
+
+            throw new NoSuchFieldException("look-at");
         }
         catch (ReflectiveOperationException e)
         {
@@ -79,22 +137,72 @@ public final class ModelInstanceCompat
         }
     }
 
+    private static Field findDeclaredField(Class<?> type, String name)
+    {
+        Class<?> cursor = type;
+
+        while (cursor != null && cursor != Object.class)
+        {
+            try
+            {
+                return cursor.getDeclaredField(name);
+            }
+            catch (NoSuchFieldException ignored)
+            {
+                cursor = cursor.getSuperclass();
+            }
+        }
+
+        return null;
+    }
+
     @SuppressWarnings("unchecked")
     public static List<ArmorSlot> getItemsMain(ModelInstance instance)
     {
-        return (List<ArmorSlot>) get(instance, "getItemsMain", "itemsMain");
+        return itemSlots(instance, "getItemsMain", "itemsMain");
     }
 
     @SuppressWarnings("unchecked")
     public static List<ArmorSlot> getItemsOff(ModelInstance instance)
     {
-        return (List<ArmorSlot>) get(instance, "getItemsOff", "itemsOff");
+        return itemSlots(instance, "getItemsOff", "itemsOff");
     }
 
     @SuppressWarnings("unchecked")
     public static Map<ArmorType, ArmorSlot> getArmorSlots(ModelInstance instance)
     {
-        return (Map<ArmorType, ArmorSlot>) get(instance, "getArmorSlots", "armorSlots");
+        Object value = get(instance, "getArmorSlots", "armorSlots");
+
+        if (value instanceof Map<?, ?> map)
+        {
+            /* BBS 2.1 rebuilds a fresh HashMap each getArmorSlots() call — wrap put. */
+            Object config = read(instance, "config");
+            Object armorSlots = read(config, "armorSlots");
+
+            if (armorSlots != null && hasMethod(armorSlots.getClass(), "getSlot", ArmorType.class))
+            {
+                return armorSlotMap(armorSlots, (Map<ArmorType, ArmorSlot>) map);
+            }
+
+            return (Map<ArmorType, ArmorSlot>) map;
+        }
+
+        Object config = read(instance, "config");
+        Object fromConfig = invokeNoArgs(config, "getArmorSlots");
+
+        if (fromConfig instanceof Map<?, ?> map)
+        {
+            return (Map<ArmorType, ArmorSlot>) map;
+        }
+
+        Object armorSlots = read(config, "armorSlots");
+
+        if (armorSlots != null && hasMethod(armorSlots.getClass(), "getSlot", ArmorType.class))
+        {
+            return armorSlotMap(armorSlots, Collections.emptyMap());
+        }
+
+        return null;
     }
 
     public static String getPoseGroup(ModelInstance instance)
@@ -150,6 +258,116 @@ public final class ModelInstanceCompat
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static List<ArmorSlot> itemSlots(ModelInstance instance, String getter, String field)
+    {
+        Object value = get(instance, getter, field);
+
+        if (value instanceof List<?> list)
+        {
+            return (List<ArmorSlot>) list;
+        }
+
+        Object config = read(instance, "config");
+        Object fromConfig = invokeNoArgs(config, getter);
+
+        if (fromConfig instanceof List<?> list)
+        {
+            return (List<ArmorSlot>) list;
+        }
+
+        Object holder = read(config, field);
+
+        if (holder != null)
+        {
+            Object slots = invokeNoArgs(holder, "getSlots");
+
+            if (slots instanceof List<?> list && hasMethod(holder.getClass(), "addSlot", ArmorSlot.class))
+            {
+                return slotAddList(holder, (List<ArmorSlot>) list);
+            }
+
+            if (slots instanceof List<?> list)
+            {
+                return (List<ArmorSlot>) list;
+            }
+
+            if (hasMethod(holder.getClass(), "addSlot", ArmorSlot.class))
+            {
+                return slotAddList(holder, List.of());
+            }
+        }
+
+        return new java.util.ArrayList<>();
+    }
+
+    private static List<ArmorSlot> slotAddList(Object holder, List<ArmorSlot> snapshot)
+    {
+        return new AbstractList<>()
+        {
+            @Override
+            public ArmorSlot get(int index)
+            {
+                List<ArmorSlot> slots = currentSlots(holder, snapshot);
+                return slots.get(index);
+            }
+
+            @Override
+            public int size()
+            {
+                return currentSlots(holder, snapshot).size();
+            }
+
+            @Override
+            public boolean add(ArmorSlot slot)
+            {
+                try
+                {
+                    holder.getClass().getMethod("addSlot", ArmorSlot.class).invoke(holder, slot);
+                    return true;
+                }
+                catch (ReflectiveOperationException e)
+                {
+                    throw incompatible("item slot", e);
+                }
+            }
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<ArmorSlot> currentSlots(Object holder, List<ArmorSlot> fallback)
+    {
+        Object slots = invokeNoArgs(holder, "getSlots");
+        return slots instanceof List<?> list ? (List<ArmorSlot>) list : fallback;
+    }
+
+    private static Map<ArmorType, ArmorSlot> armorSlotMap(Object holder, Map<ArmorType, ArmorSlot> snapshot)
+    {
+        return new java.util.AbstractMap<>()
+        {
+            @Override
+            public java.util.Set<Entry<ArmorType, ArmorSlot>> entrySet()
+            {
+                return snapshot.entrySet();
+            }
+
+            @Override
+            public ArmorSlot put(ArmorType key, ArmorSlot value)
+            {
+                try
+                {
+                    Object slotValue = holder.getClass().getMethod("getSlot", ArmorType.class).invoke(holder, key);
+                    setValue(slotValue, value);
+                    return null;
+                }
+                catch (ReflectiveOperationException e)
+                {
+                    throw incompatible("armor slots", e);
+                }
+            }
+        };
+    }
+
     private static void set(ModelInstance instance, String name, Object value)
     {
         set(instance, name, name, value);
@@ -186,8 +404,24 @@ public final class ModelInstanceCompat
     {
         if (setting == null) throw new NoSuchFieldException("Missing setting");
 
-        Method method = setting.getClass().getMethod("set", Object.class);
-        method.invoke(setting, value);
+        /* BaseValueBasic erases to set(Object); ValueVector3f (BBS 2.1) only has set(Vector3f). */
+        for (Method method : setting.getClass().getMethods())
+        {
+            if (!"set".equals(method.getName()) || method.getParameterCount() != 1)
+            {
+                continue;
+            }
+
+            Class<?> param = method.getParameterTypes()[0];
+
+            if (param.isInstance(value) || param == Object.class)
+            {
+                method.invoke(setting, value);
+                return;
+            }
+        }
+
+        throw new NoSuchMethodException("No compatible set(...) on " + setting.getClass().getName());
     }
 
     private static Object get(Object owner, String method, String field)
@@ -198,6 +432,8 @@ public final class ModelInstanceCompat
 
     private static Object invokeNoArgs(Object owner, String method)
     {
+        if (owner == null) return null;
+
         try
         {
             return owner.getClass().getMethod(method).invoke(owner);
@@ -205,6 +441,19 @@ public final class ModelInstanceCompat
         catch (ReflectiveOperationException ignored)
         {
             return null;
+        }
+    }
+
+    private static boolean hasMethod(Class<?> type, String name, Class<?>... params)
+    {
+        try
+        {
+            type.getMethod(name, params);
+            return true;
+        }
+        catch (NoSuchMethodException e)
+        {
+            return false;
         }
     }
 

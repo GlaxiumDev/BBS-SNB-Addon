@@ -15,7 +15,7 @@ import mchorse.bbs_mod.data.types.ListType;
 import mchorse.bbs_mod.data.types.MapType;
 import mchorse.bbs_mod.resources.AssetProvider;
 import mchorse.bbs_mod.resources.Link;
-import mchorse.bbs_mod.utils.IOUtils;
+import glaxium.snb.compat.IOUtilsCompat;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -242,7 +242,7 @@ public abstract class CubicModelLoaderMixinFS
                     return;
                 }
 
-                root = DataToString.mapFromString(IOUtils.readText(stream));
+                root = DataToString.mapFromString(IOUtilsCompat.readText(stream));
             }
             catch (Exception e)
             {
