@@ -54,6 +54,9 @@
     "cml.UIReplaysEditorMixinCML",
     "cml.UIAnimationStateEditorMixinCML",
     "cml.UIFormPropertyTrackSheetsMixinCML",
+    "cml.PreviewFrameMixinCML",
+    "cml.FormUIPreviewCacheMixinCML",
+    "cml.UIFormListPreviewMixinCML",
     "cml.FlipDebugMixinCML"
   ],
   "injectors": {

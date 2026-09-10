@@ -61,6 +61,14 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 
         if (mixinClassName.startsWith(CML_PACKAGE))
         {
+            if (mixinClassName.equals(CML_PACKAGE + "PreviewFrameMixinCML")
+                    || mixinClassName.equals(CML_PACKAGE + "FormUIPreviewCacheMixinCML")
+                    || mixinClassName.equals(CML_PACKAGE + "UIFormListPreviewMixinCML"))
+            {
+                return fork == BBSFork.CML && BBSFbxMixinPlugin.class.getClassLoader().getResource(
+                        "mchorse/bbs_mod/forms/FormUIPreviewCache.class") != null;
+            }
+
             if (mixinClassName.equals(CML_PACKAGE + "UIAnimationStateEditorMixinCML")
                     || mixinClassName.equals(CML_PACKAGE + "UIFormPropertyTrackSheetsMixinCML"))
             {
