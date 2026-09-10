@@ -7,6 +7,7 @@
 /.idea/
 /.claude/
 /.freebuff/
+/dist/
 
 # Vendored reference checkouts (bbs-fs, bbs-mod, bbs-cml) used only for
 # cross-referencing real BBS fork source/bytecode during development -- not

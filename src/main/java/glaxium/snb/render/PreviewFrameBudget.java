@@ -1,33 +1,33 @@
 package glaxium.snb.render;
 
-/** Limits new thumbnail work; cached images do not consume the allowance. */
+/**
+ * Limits new CML morph-menu thumbnail work on the render thread.
+ *
+ * <p>CML 2.1.1 allows up to 96 fills / 28&nbsp;ms per frame. Baking one heavy
+ * FBX/glTF preview calls {@code FormUtilsClient.renderUI} into an FBO and can
+ * stall the client for seconds (mouse/Alt+F4 appear dead). This budget caps
+ * how many <em>new</em> cache fills may start per frame; cached blits are
+ * free.</p>
+ */
 public final class PreviewFrameBudget
 {
-    private static final int MAX_FILLS = 2;
-    private static final long BUDGET_NS = 2_000_000L;
+    /** At most one new FBO bake per frame — each can be multi-second. */
+    private static final int MAX_FILLS = 1;
     private static int fills;
-    private static long firstFillNs;
 
     private PreviewFrameBudget() {}
 
     public static void beginFrame()
     {
         fills = 0;
-        firstFillNs = 0L;
     }
 
+    /** Returns whether a new thumbnail bake may start this frame. */
     public static boolean tryFill()
     {
-        long now = System.nanoTime();
-
-        if (fills >= MAX_FILLS || (fills > 0 && now - firstFillNs >= BUDGET_NS))
+        if (fills >= MAX_FILLS)
         {
             return false;
-        }
-
-        if (fills == 0)
-        {
-            firstFillNs = now;
         }
 
         fills++;
