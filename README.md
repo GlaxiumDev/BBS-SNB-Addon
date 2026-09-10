@@ -55,12 +55,21 @@ Only one mixin variant per fork-divergent target is applied at runtime
 (`compat/BBSFork` detects which fork is loaded from Fabric Loader metadata
 during mixin bootstrap); everything else is fork-agnostic and shared.
 
+Version 1.1.1 updates the CML renderer hooks for **BBS CML 2.1.1 on
+Minecraft 1.21.1**, including its texture resolver and extended render
+context, plus the moved animation-state and film track builders.
+Use **Fabric Loader 0.19.3 or newer**, as required by that CML
+release. The older CML hook signatures remain supported.
+
 ## Building
 
 1. Drop the released jar for whichever BBS fork you're building against
    (Base, FS, or CML EDITION) into `libs/`.
 2. `./gradlew build`
 3. Output jar lands in `build/libs/`.
+
+To select CML explicitly when multiple jars are present:
+`./gradlew build -Pbbs_jar=libs/bbs-cml-2.1.1-1.21.1.jar`.
 
 ## Blockbench importer and exporter
 

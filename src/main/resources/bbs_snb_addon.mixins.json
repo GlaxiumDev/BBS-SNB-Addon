@@ -54,6 +54,7 @@
     "cml.CubicVAORendererMixinCML",
     "cml.UIReplaysEditorMixinCML",
     "cml.UIAnimationStateEditorMixinCML",
+    "cml.UIFormPropertyTrackSheetsMixinCML",
     "cml.FlipDebugMixinCML"
   ],
   "injectors": {

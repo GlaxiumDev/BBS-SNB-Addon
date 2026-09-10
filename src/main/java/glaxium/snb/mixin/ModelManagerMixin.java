@@ -51,8 +51,10 @@ public class ModelManagerMixin
         manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
         manager.loaders.add(Math.min(2, manager.loaders.size()), new BlockbusterModelLoader());
 
-        /* Slot our scene loader ahead of the rest. CML EDITION ships its own
-         * GLTFModelLoader, which imports glTF/GLB with a single model texture
+        /* Slot our scene loader ahead of native scene loaders. CML 2.1.1
+         * adds FBXModelLoader before its existing GLTFModelLoader; either
+         * can claim a scene before the addon's material data is populated.
+         * GLTFModelLoader imports glTF/GLB with a single model texture
          * (no per-material split) -- placing ours after it (the old add-at-end
          * behavior) meant every glTF/GLB on CML went through the native
          * loader and never saw multi-texture. FBXModelLoader returns null for
@@ -65,7 +67,9 @@ public class ModelManagerMixin
 
         for (int i = 0; i < manager.loaders.size(); i++)
         {
-            if (manager.loaders.get(i).getClass().getSimpleName().equals("GLTFModelLoader"))
+            String name = manager.loaders.get(i).getClass().getSimpleName();
+
+            if (name.equals("FBXModelLoader") || name.equals("GLTFModelLoader"))
             {
                 insertAt = i;
                 break;
