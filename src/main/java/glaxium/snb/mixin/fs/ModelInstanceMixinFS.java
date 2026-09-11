@@ -114,42 +114,53 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
             names = cubic.bbsFbx$getMaterials();
         }
 
-        if (names == null || names.isEmpty())
+        if (names != null && !names.isEmpty())
         {
-            return;
+            for (String name : names)
+            {
+                /* Armor sidecar shells are equipped-state geometry, never
+                 * selectable/animated materials -- keep them out of the list
+                 * FS's picker and film-editor material sheets iterate. */
+                if (EmoticonArmorSidecar.isArmorMesh(name))
+                {
+                    continue;
+                }
+
+                if (!this.materials.contains(name))
+                {
+                    this.materials.add(name);
+                }
+            }
+
+            for (int i = 0; i < names.size(); i++)
+            {
+                if (EmoticonArmorSidecar.isArmorMesh(names.get(i)))
+                {
+                    continue;
+                }
+
+                Link texture = defaults != null && i < defaults.length
+                        ? defaults[i]
+                        : MaterialTextureDelegate.getDefaultMaterialTexture(this.model, names.get(i));
+
+                if (texture != null)
+                {
+                    this.materialTextures.put(names.get(i), texture);
+                }
+            }
         }
 
-        for (String name : names)
+        /* Native BOBJ (emoticon armor.bobj) already fills materials from mesh
+         * names before this inject -- strip armor shells so the model-panel
+         * texture picker and film material sheets match Base/CML/FS. */
+        if (this.materials != null)
         {
-            /* Armor sidecar shells are equipped-state geometry, never
-             * selectable/animated materials -- keep them out of the list
-             * FS's picker and film-editor material sheets iterate. */
-            if (EmoticonArmorSidecar.isArmorMesh(name))
-            {
-                continue;
-            }
-
-            if (!this.materials.contains(name))
-            {
-                this.materials.add(name);
-            }
+            this.materials.removeIf(EmoticonArmorSidecar::isArmorMesh);
         }
 
-        for (int i = 0; i < names.size(); i++)
+        if (this.materialTextures != null)
         {
-            if (EmoticonArmorSidecar.isArmorMesh(names.get(i)))
-            {
-                continue;
-            }
-
-            Link texture = defaults != null && i < defaults.length
-                    ? defaults[i]
-                    : MaterialTextureDelegate.getDefaultMaterialTexture(this.model, names.get(i));
-
-            if (texture != null)
-            {
-                this.materialTextures.put(names.get(i), texture);
-            }
+            this.materialTextures.keySet().removeIf(EmoticonArmorSidecar::isArmorMesh);
         }
     }
 

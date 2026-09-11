@@ -18,6 +18,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.io.InputStream;
 import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 /** Adds armor.bobj immediately after the host parses the untouched main BOBJ. */
 @Mixin(value = BOBJModelLoader.class, remap = false)
@@ -65,6 +68,47 @@ public abstract class BOBJModelLoaderArmorMixin
             String id, ModelManager manager, Link folder, Collection<Link> links, MapType config,
             CallbackInfoReturnable<ModelInstance> info)
     {
+        /* FS / BBS 2.1 fill ModelInstance.materials from every BOBJ mesh
+         * AFTER <init> returns, so the constructor-time strip in
+         * ModelInstanceMixinFS is too early for native emoticon models.
+         * Drop armor shells here once the list is final. Reflective so this
+         * ungated mixin still compiles/runs on Base/CML (no materials field). */
+        ModelInstance instance = info.getReturnValue();
+
+        if (instance != null)
+        {
+            try
+            {
+                Object materials = instance.getClass().getField("materials").get(instance);
+
+                if (materials instanceof List<?> list)
+                {
+                    list.removeIf(entry -> entry instanceof String name && EmoticonArmorSidecar.isArmorMesh(name));
+                }
+
+                Object textures = instance.getClass().getField("materialTextures").get(instance);
+
+                if (textures instanceof Map<?, ?> map)
+                {
+                    Iterator<?> keys = map.keySet().iterator();
+
+                    while (keys.hasNext())
+                    {
+                        Object key = keys.next();
+
+                        if (key instanceof String name && EmoticonArmorSidecar.isArmorMesh(name))
+                        {
+                            keys.remove();
+                        }
+                    }
+                }
+            }
+            catch (ReflectiveOperationException ignored)
+            {
+                // Base/CML ModelInstance has no native materials map.
+            }
+        }
+
         bbsFbx$armorModelId.remove();
         bbsFbx$armorModelManager.remove();
         bbsFbx$armorModelFolder.remove();
