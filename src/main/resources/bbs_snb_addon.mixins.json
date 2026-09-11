@@ -22,6 +22,7 @@
     "fs.BOBJModelArmorMixinFS",
     "fs.BOBJModelArmorMixinFS21",
     "fs.FormUtilsMixinFS",
+    "fs.UIReplaysEditorUtilsMixinFS21",
     "fs.ModelInstanceArmorMixin",
     "cml.ModelInstanceMixinCML",
     "base.BOBJModelVAOMixinBase",
