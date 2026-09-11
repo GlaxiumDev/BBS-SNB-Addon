@@ -164,13 +164,14 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
      * render push in {@code ModelFormRendererMixin*} and the picker menu in
      * {@code UIModelFormPanelMixin} -- reads the merged result.
      *
-     * <p>FS also persists static per-material picks separately, in its
-     * {@code ModelForm.materialTextures} ({@code ValueLinks}) -- that's
-     * where FS's own model-panel picker writes (Base/CML use this addon's
-     * ValueString override instead). Those are merged in first, at lower
-     * priority than the film's {@code materialTextureOverrides}, so a
-     * pick made in the model panel applies to every un-animated material
-     * but never fights the film while keyframes are playing.</p>
+     * <p>FS / BBS&nbsp;2.1 also persist static per-material picks separately, in
+     * {@code ModelForm.materialTextures} ({@code ValueLinks} on Wemppy FS,
+     * {@code ValueMaterialTextures} on BBS&nbsp;2.1) -- that's where the native
+     * model-panel picker writes (Base/CML use this addon's ValueString override
+     * instead). Those are merged in first, at lower priority than the film's
+     * {@code materialTextureOverrides}, so a pick made in the model panel
+     * applies to every un-animated material but never fights the film while
+     * keyframes are playing.</p>
      */
     @Unique
     private void bbsFbx$mergeNativeOverrides(Map<String, Link> result)
@@ -180,8 +181,10 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
     }
 
     /**
-     * FS-only static picks from {@code ModelForm.materialTextures}
-     * ({@code ValueLinks}, read via its inherited public {@code get()}).
+     * FS / BBS&nbsp;2.1 static picks from {@code ModelForm.materialTextures}.
+     * Wemppy FS stores them in {@code ValueLinks} (Map via {@code get()});
+     * BBS&nbsp;2.1 uses {@code ValueMaterialTextures} ({@code ValueGroup} of
+     * {@code ValueLink} children, read via {@code getAll()} / {@code getLink}).
      * {@code putIfAbsent}: the film's keyframes (merged afterwards) and the
      * Base/CML runtime/persisted overrides (merged before) always win.
      */
@@ -203,28 +206,65 @@ public abstract class ModelFormMixin implements IFormMaterialTextureHolder
 
         try
         {
-            Object valueLinks = bbsFbx$materialTexturesField.get(this);
+            Object holder = bbsFbx$materialTexturesField.get(this);
 
-            if (valueLinks == null)
+            if (holder == null)
             {
                 return;
             }
 
-            if (bbsFbx$valueLinksGet == null)
+            /* Wemppy FS: ValueLinks extends BaseValueBasic<Map<String, Link>>. */
+            try
             {
-                bbsFbx$valueLinksGet = valueLinks.getClass().getMethod("get");
+                if (bbsFbx$valueLinksGet == null)
+                {
+                    bbsFbx$valueLinksGet = holder.getClass().getMethod("get");
+                }
+
+                Object raw = bbsFbx$valueLinksGet.invoke(holder);
+
+                if (raw instanceof Map<?, ?> picks)
+                {
+                    for (Map.Entry<?, ?> entry : picks.entrySet())
+                    {
+                        if (entry.getKey() instanceof String material && entry.getValue() instanceof Link link)
+                        {
+                            result.putIfAbsent(material, link);
+                        }
+                    }
+
+                    return;
+                }
+            }
+            catch (NoSuchMethodException ignored)
+            {
+                // BBS 2.1 ValueMaterialTextures has no no-arg get() - fall through.
             }
 
-            Object raw = bbsFbx$valueLinksGet.invoke(valueLinks);
+            /* BBS 2.1: ValueMaterialTextures / ValueGroup of ValueLink children. */
+            Method getAll = holder.getClass().getMethod("getAll");
+            Object all = getAll.invoke(holder);
 
-            if (raw instanceof Map<?, ?> picks)
+            if (!(all instanceof Iterable<?> children))
             {
-                for (Map.Entry<?, ?> entry : picks.entrySet())
+                return;
+            }
+
+            for (Object child : children)
+            {
+                if (child == null)
                 {
-                    if (entry.getKey() instanceof String material && entry.getValue() instanceof Link link)
-                    {
-                        result.putIfAbsent(material, link);
-                    }
+                    continue;
+                }
+
+                Method getId = child.getClass().getMethod("getId");
+                Method get = child.getClass().getMethod("get");
+                Object id = getId.invoke(child);
+                Object value = get.invoke(child);
+
+                if (id instanceof String material && value instanceof Link link)
+                {
+                    result.putIfAbsent(material, link);
                 }
             }
         }
