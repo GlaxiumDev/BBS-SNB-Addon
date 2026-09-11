@@ -38,6 +38,19 @@ public final class ModelInstanceCompat
             return;
         }
 
+        /* BBS 2.1: ModelInstance.scale is ValueVector3f, not Vector3f. */
+        if (current != null)
+        {
+            try
+            {
+                setValue(current, value);
+                return;
+            }
+            catch (ReflectiveOperationException ignored)
+            {
+            }
+        }
+
         Object viaGetter = invokeNoArgs(instance, "getScale");
 
         if (viaGetter instanceof Vector3f vector)
