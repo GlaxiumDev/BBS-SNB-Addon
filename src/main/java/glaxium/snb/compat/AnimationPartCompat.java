@@ -3,6 +3,7 @@ package glaxium.snb.compat;
 import mchorse.bbs_mod.cubic.data.animation.AnimationPart;
 import mchorse.bbs_mod.math.molang.MolangParser;
 import mchorse.bbs_mod.math.molang.expressions.MolangExpression;
+import mchorse.bbs_mod.utils.keyframes.Keyframe;
 import mchorse.bbs_mod.utils.keyframes.KeyframeChannel;
 
 import java.lang.reflect.Constructor;
@@ -11,6 +12,7 @@ import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * Bridges Base/FS/CML per-axis {@code AnimationPart} fields ({@code x}/{@code rx}/…)
@@ -27,8 +29,8 @@ public final class AnimationPartCompat
     private static final Map<AnimationPart, Staging> STAGING = new IdentityHashMap<>();
 
     private static final Constructor<?> CHANNEL_CTOR;
+    private static final Constructor<?> MOLANG_VECTOR_CTOR;
     private static final Object MOLANG_FACTORY;
-    private static final Method FILL_VECTOR_FROM_AXES;
     private static final Field TRANSLATE;
     private static final Field ROTATE;
     private static final Field SCALE;
@@ -36,8 +38,8 @@ public final class AnimationPartCompat
     static
     {
         Constructor<?> ctor = null;
+        Constructor<?> molangVectorCtor = null;
         Object molangFactory = null;
-        Method fill = null;
         Field translate = null;
         Field rotate = null;
         Field scale = null;
@@ -68,13 +70,8 @@ public final class AnimationPartCompat
                 translate = AnimationPart.class.getField("translate");
                 rotate = AnimationPart.class.getField("rotate");
                 scale = AnimationPart.class.getField("scale");
-                fill = AnimationPart.class.getMethod(
-                        "fillVectorFromAxes",
-                        KeyframeChannel.class,
-                        KeyframeChannel.class,
-                        KeyframeChannel.class,
-                        KeyframeChannel.class,
-                        MolangExpression.class);
+                molangVectorCtor = Class.forName("mchorse.bbs_mod.cubic.data.animation.MolangVector")
+                        .getConstructor(MolangExpression.class, MolangExpression.class, MolangExpression.class);
             }
             catch (ReflectiveOperationException ignored)
             {
@@ -82,8 +79,8 @@ public final class AnimationPartCompat
         }
 
         CHANNEL_CTOR = ctor;
+        MOLANG_VECTOR_CTOR = molangVectorCtor;
         MOLANG_FACTORY = molangFactory;
-        FILL_VECTOR_FROM_AXES = fill;
         TRANSLATE = translate;
         ROTATE = rotate;
         SCALE = scale;
@@ -195,7 +192,7 @@ public final class AnimationPartCompat
 
         Staging staging = STAGING.remove(part);
 
-        if (staging == null || FILL_VECTOR_FROM_AXES == null)
+        if (staging == null || MOLANG_VECTOR_CTOR == null)
         {
             return;
         }
@@ -298,13 +295,118 @@ public final class AnimationPartCompat
                 return;
             }
 
-            FILL_VECTOR_FROM_AXES.invoke(
-                    null,
-                    vectorField.get(part),
-                    channel(a),
-                    channel(b),
-                    channel(c),
-                    fallback);
+            /* BBS 2.1 fillVectorFromAxes interpolates missing axes and NPEs
+             * when those keyframes have a null factory (Prism / production).
+             * Merge on the union of ticks instead, holding the previous value. */
+            KeyframeChannel<MolangExpression> x = channels.get(a);
+            KeyframeChannel<MolangExpression> y = channels.get(b);
+            KeyframeChannel<MolangExpression> z = channels.get(c);
+            Object vectorChannel = vectorField.get(part);
+
+            if (vectorChannel == null)
+            {
+                return;
+            }
+
+            TreeSet<Float> ticks = new TreeSet<>();
+
+            collectTicks(ticks, x);
+            collectTicks(ticks, y);
+            collectTicks(ticks, z);
+
+            Method insert = vectorChannel.getClass().getMethod("insert", float.class, Object.class);
+            Method get = vectorChannel.getClass().getMethod("get", int.class);
+
+            for (float tick : ticks)
+            {
+                Object vector = MOLANG_VECTOR_CTOR.newInstance(
+                        sampleAxis(x, tick, fallback),
+                        sampleAxis(y, tick, fallback),
+                        sampleAxis(z, tick, fallback));
+                int index = (Integer) insert.invoke(vectorChannel, tick, vector);
+                Keyframe<?> dest = (Keyframe<?>) get.invoke(vectorChannel, index);
+                Keyframe<?> source = keyframeAt(x, tick);
+
+                if (source == null)
+                {
+                    source = keyframeAt(y, tick);
+                }
+
+                if (source == null)
+                {
+                    source = keyframeAt(z, tick);
+                }
+
+                if (dest != null && source != null)
+                {
+                    dest.getInterpolation().copy(source.getInterpolation());
+                }
+            }
         }
+    }
+
+    private static void collectTicks(TreeSet<Float> ticks, KeyframeChannel<MolangExpression> channel)
+    {
+        if (channel == null || channel.isEmpty())
+        {
+            return;
+        }
+
+        for (Keyframe<MolangExpression> keyframe : channel.getKeyframes())
+        {
+            ticks.add(keyframe.getTick());
+        }
+    }
+
+    private static MolangExpression sampleAxis(
+            KeyframeChannel<MolangExpression> channel,
+            float tick,
+            MolangExpression fallback)
+    {
+        if (channel == null || channel.isEmpty())
+        {
+            return fallback;
+        }
+
+        Keyframe<MolangExpression> previous = null;
+
+        for (Keyframe<MolangExpression> keyframe : channel.getKeyframes())
+        {
+            float at = keyframe.getTick();
+
+            if (at == tick)
+            {
+                return keyframe.getValue();
+            }
+
+            if (at < tick)
+            {
+                previous = keyframe;
+            }
+            else
+            {
+                return previous != null ? previous.getValue() : keyframe.getValue();
+            }
+        }
+
+        return previous != null ? previous.getValue() : fallback;
+    }
+
+    private static Keyframe<MolangExpression> keyframeAt(KeyframeChannel<MolangExpression> channel, float tick)
+    {
+        if (channel == null || channel.isEmpty())
+        {
+            return null;
+        }
+
+        for (Keyframe<MolangExpression> keyframe : channel.getKeyframes())
+        {
+            if (keyframe.getTick() == tick)
+            {
+                return keyframe;
+            }
+        }
+
+        return null;
     }
 }
