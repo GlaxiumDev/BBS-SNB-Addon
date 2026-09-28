@@ -66,6 +66,10 @@ public abstract class BOBJModelVAOMixinCML
     @Shadow public BOBJLoader.CompiledData data;
     @Shadow public BOBJArmature armature;
     @Shadow private int vao;
+    @Shadow private int count;
+    @Shadow public int vertexBuffer;
+    @Shadow public int texCoordBuffer;
+    @Shadow public int tangentBuffer;
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$hideEmptyArmorSlot(
@@ -178,8 +182,25 @@ public abstract class BOBJModelVAOMixinCML
             GL30.glEnableVertexAttribArray(Attributes.TEXTURE_UV);
             GL30.glEnableVertexAttribArray(Attributes.NORMAL);
 
-            if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
-            if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            if (hasShaders && this.tangentBuffer != 0)
+            {
+                GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, this.tangentBuffer);
+                GL30.glVertexAttribPointer(Attributes.TANGENTS, 4, GL30.GL_FLOAT, false, 0, 0);
+                GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
+
+                int midTex = this.texCoordBuffer != 0 ? this.texCoordBuffer : this.vertexBuffer;
+                if (midTex != 0)
+                {
+                    GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, midTex);
+                    GL30.glVertexAttribPointer(Attributes.MID_TEXTURE_UV, 2, GL30.GL_FLOAT, false, 0, 0);
+                    GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+                }
+            }
+            else
+            {
+                GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
+                GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            }
 
             /* The picker's per-vertex object index comes from the light
              * buffer (heaviest bone per vertex, built by updateMesh), so the
@@ -204,7 +225,7 @@ public abstract class BOBJModelVAOMixinCML
 
                 if (stencilPick)
                 {
-                    glaxium.snb.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+                    glaxium.snb.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m], this.count);
 
                     continue;
                 }
@@ -256,7 +277,7 @@ public abstract class BOBJModelVAOMixinCML
                 GL30.glActiveTexture(GL30.GL_TEXTURE0);
                 BBSModClient.getTextures().bind(toUse);
 
-                glaxium.snb.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+                glaxium.snb.render.MultiMaterialTriangleDraw.drawRuns(materialRuns[m], this.count);
 
                 // Restore the whole-model intensity right after each override-staged material, so a
                 // material without its own override (pbr == null above, where the caller's staged
@@ -268,8 +289,11 @@ public abstract class BOBJModelVAOMixinCML
             GL30.glDisableVertexAttribArray(Attributes.TEXTURE_UV);
             GL30.glDisableVertexAttribArray(Attributes.NORMAL);
 
-            if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
-            if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            if (hasShaders && this.tangentBuffer != 0)
+            {
+                GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
+                GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            }
             if (stencilPick) GL30.glDisableVertexAttribArray(Attributes.LIGHTMAP_UV);
 
             shader.unbind();
