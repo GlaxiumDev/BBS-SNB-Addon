@@ -71,6 +71,10 @@ public abstract class BOBJModelVAOMixinBase
 {
     @Shadow public BOBJLoader.CompiledData data;
     @Shadow private int vao;
+    @Shadow private int count;
+    @Shadow public int vertexBuffer;
+    @Shadow public int texCoordBuffer;
+    @Shadow public int tangentBuffer;
 
     @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
     private void bbsFbx$hideEmptyArmorSlot(
@@ -162,22 +166,43 @@ public abstract class BOBJModelVAOMixinBase
 
         try
         {
-            GL30.glVertexAttrib4f(Attributes.COLOR, r, g, b, a);
-            GL30.glVertexAttribI2i(Attributes.OVERLAY_UV, overlay & '\uffff', overlay >> 16 & '\uffff');
-            GL30.glVertexAttribI2i(Attributes.LIGHTMAP_UV, light & '\uffff', light >> 16 & '\uffff');
-
             ModelVAORenderer.setupUniforms(stack, shader);
 
             shader.bind();
 
             GL30.glBindVertexArray(this.vao);
 
+            GL30.glDisableVertexAttribArray(Attributes.COLOR);
+            GL30.glDisableVertexAttribArray(Attributes.OVERLAY_UV);
+            GL30.glDisableVertexAttribArray(Attributes.LIGHTMAP_UV);
+
+            GL30.glVertexAttrib4f(Attributes.COLOR, r, g, b, a);
+            GL30.glVertexAttribI2i(Attributes.OVERLAY_UV, overlay & '\uffff', overlay >> 16 & '\uffff');
+            GL30.glVertexAttribI2i(Attributes.LIGHTMAP_UV, light & '\uffff', light >> 16 & '\uffff');
+
             GL30.glEnableVertexAttribArray(Attributes.POSITION);
             GL30.glEnableVertexAttribArray(Attributes.TEXTURE_UV);
             GL30.glEnableVertexAttribArray(Attributes.NORMAL);
 
-            if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
-            if (hasShaders) GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            if (hasShaders && this.tangentBuffer != 0)
+            {
+                GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, this.tangentBuffer);
+                GL30.glVertexAttribPointer(Attributes.TANGENTS, 4, GL30.GL_FLOAT, false, 0, 0);
+                GL30.glEnableVertexAttribArray(Attributes.TANGENTS);
+
+                int midTex = this.texCoordBuffer != 0 ? this.texCoordBuffer : this.vertexBuffer;
+                if (midTex != 0)
+                {
+                    GL30.glBindBuffer(GL30.GL_ARRAY_BUFFER, midTex);
+                    GL30.glVertexAttribPointer(Attributes.MID_TEXTURE_UV, 2, GL30.GL_FLOAT, false, 0, 0);
+                    GL30.glEnableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+                }
+            }
+            else
+            {
+                GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
+                GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            }
 
             /* The picker's per-vertex object index comes from the light
              * buffer (heaviest bone per vertex, built by updateMesh), so the
@@ -200,7 +225,7 @@ public abstract class BOBJModelVAOMixinBase
 
                 if (stencilPick)
                 {
-                    MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+                    MultiMaterialTriangleDraw.drawRuns(materialRuns[m], this.count);
 
                     continue;
                 }
@@ -261,15 +286,18 @@ public abstract class BOBJModelVAOMixinBase
                     GL30.glBindTexture(GL30.GL_TEXTURE_2D, previousTexture);
                 }
 
-                MultiMaterialTriangleDraw.drawRuns(materialRuns[m]);
+                MultiMaterialTriangleDraw.drawRuns(materialRuns[m], this.count);
             }
 
             GL30.glDisableVertexAttribArray(Attributes.POSITION);
             GL30.glDisableVertexAttribArray(Attributes.TEXTURE_UV);
             GL30.glDisableVertexAttribArray(Attributes.NORMAL);
 
-            if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
-            if (hasShaders) GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            if (hasShaders && this.tangentBuffer != 0)
+            {
+                GL30.glDisableVertexAttribArray(Attributes.TANGENTS);
+                GL30.glDisableVertexAttribArray(Attributes.MID_TEXTURE_UV);
+            }
             if (stencilPick) GL30.glDisableVertexAttribArray(Attributes.LIGHTMAP_UV);
 
             shader.unbind();

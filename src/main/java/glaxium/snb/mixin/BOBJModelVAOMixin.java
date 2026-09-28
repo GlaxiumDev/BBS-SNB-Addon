@@ -237,7 +237,7 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
         Matrix4f[] matrices = this.armature.matrices;
         int matrixCount = matrices == null ? 0 : matrices.length;
-        int sigSize = matrixCount * 16 + 2;
+        int sigSize = matrixCount * 16 + 3;
 
         if (this.bbsFbx$poseCache == null || this.bbsFbx$poseScratch == null
                 || this.bbsFbx$poseCache.length != sigSize)
@@ -264,6 +264,8 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         sig[p] = stencilMap != null && stencilMap.increment ? 1.0f : 0.0f;
         p++;
         sig[p] = this.count;
+        p++;
+        sig[p] = mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled() ? 1.0f : 0.0f;
 
         if (this.bbsFbx$poseCacheValid && Arrays.equals(sig, this.bbsFbx$poseCache))
         {
@@ -647,8 +649,13 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.normalBuffer);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newNormals, GL15.GL_DYNAMIC_DRAW);
 
-        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled())
+        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled() && this.data != null && this.data.texData != null)
         {
+            if (this.tmpTangents == null || this.tmpTangents.length < vertexCount * 4)
+            {
+                this.tmpTangents = new float[vertexCount * 4];
+            }
+
             mchorse.bbs_mod.client.BBSRendering.calculateTangents(this.tmpTangents, newVertices, newNormals, this.data.texData);
 
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.tangentBuffer);
@@ -1068,8 +1075,13 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.normalBuffer);
         GL15.glBufferData(GL15.GL_ARRAY_BUFFER, newNormals, GL15.GL_DYNAMIC_DRAW);
 
-        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled())
+        if (mchorse.bbs_mod.client.BBSRendering.isIrisShadersEnabled() && this.data != null && this.data.texData != null)
         {
+            if (this.tmpTangents == null || this.tmpTangents.length < this.count * 4)
+            {
+                this.tmpTangents = new float[this.count * 4];
+            }
+
             mchorse.bbs_mod.client.BBSRendering.calculateTangents(this.tmpTangents, newVertices, newNormals, this.data.texData);
 
             GL15.glBindBuffer(GL15.GL_ARRAY_BUFFER, this.tangentBuffer);
