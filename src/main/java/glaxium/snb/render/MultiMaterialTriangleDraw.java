@@ -148,12 +148,28 @@ public final class MultiMaterialTriangleDraw
         return runs;
     }
 
-    /** Issues the {@code glDrawArrays} calls for one material's precomputed runs (see {@link #computeMaterialRuns}). No scanning -- just replays cached ranges. */
-    public static void drawRuns(int[] runs)
+    /** Issues the {@code glDrawArrays} calls for one material's precomputed runs with bounds safety against maxVertices. */
+    public static void drawRuns(int[] runs, int maxVertices)
     {
+        if (runs == null)
+        {
+            return;
+        }
+
         for (int i = 0; i < runs.length; i += 2)
         {
-            GL30.glDrawArrays(GL30.GL_TRIANGLES, runs[i] * 3, runs[i + 1] * 3);
+            int first = runs[i] * 3;
+            int count = runs[i + 1] * 3;
+
+            if (first >= 0 && count > 0 && (maxVertices <= 0 || (first + count) <= maxVertices))
+            {
+                GL30.glDrawArrays(GL30.GL_TRIANGLES, first, count);
+            }
         }
+    }
+
+    public static void drawRuns(int[] runs)
+    {
+        drawRuns(runs, 0);
     }
 }

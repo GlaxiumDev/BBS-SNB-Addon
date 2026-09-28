@@ -6,6 +6,7 @@
   "client": [
     "ModelManagerMixin",
     "ModelLoaderDedupeMixin",
+    "TextureManagerNullGuardMixin",
     "ImportersMixin",
     "UITexturePickerMixin",
     "BOBJModelMixin",
