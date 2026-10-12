@@ -28,7 +28,6 @@ import java.util.Set;
 public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 {
     private static final String FS_PACKAGE = "glaxium.snb.mixin.fs.";
-    private static final String FS27_PACKAGE = "glaxium.snb.mixin.fs27.";
     private static final String CML_PACKAGE = "glaxium.snb.mixin.cml.";
     private static final String BASECML_PACKAGE = "glaxium.snb.mixin.basecml.";
     private static final String BASEFS_PACKAGE = "glaxium.snb.mixin.basefs.";
@@ -54,28 +53,14 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
             return false;
         }
 
-        if (mixinClassName.startsWith(FS27_PACKAGE))
-        {
-            return fork == BBSFork.FS27;
-        }
-
         if (mixinClassName.startsWith(FS_PACKAGE))
         {
             if (fork == BBSFork.FS)
             {
-                /* Wemppy FS uses the 3-arg armor hinge only; track hiding stays
+                /* BBS FS (2.7+) uses the 3-arg armor hinge only; track hiding stays
                  * on FormUtils.collectPropertyPaths (FormUtilsMixinFS). */
                 return !mixinClassName.endsWith(".BOBJModelArmorMixinFS21")
                         && !mixinClassName.endsWith(".UIReplaysEditorUtilsMixinFS21");
-            }
-
-            if (fork == BBSFork.FS27)
-            {
-                /* BBS FS 2.7 has dedicated fs27.* replacements for changed signatures. */
-                return !mixinClassName.endsWith(".BOBJModelArmorMixinFS21")
-                        && !mixinClassName.endsWith(".UIReplaysEditorUtilsMixinFS21")
-                        && !mixinClassName.endsWith(".ModelFormRendererMixinFS")
-                        && !mixinClassName.endsWith(".ModelInstanceMixinFS");
             }
 
             if (fork == BBSFork.FS21)

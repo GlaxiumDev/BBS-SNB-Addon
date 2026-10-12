@@ -17,17 +17,13 @@ import java.util.Optional;
  */
 public enum BBSFork
 {
-    FS("BBS FS"),
-    /** BBS FS 2.7+ line — api package reorganization, 12-arg renderModel, updateMesh(StencilMap, long), Matrix4f render. */
-    FS27("BBS FS 2.7+"),
+    FS("BBS FS (2.7+)"),
     /** McHorse/community BBS 2.1 line — FS-shaped render APIs, older SimpleVAO/FormUtils. */
     FS21("BBS 2.1 (FS fork)"),
     CML("BBS CML Edition");
 
-    /** Present in FS / FS21 / FS27. Fully qualified. */
+    /** Present in FS / FS21. Fully qualified. */
     private static final String FS_ONLY_CLASS = "mchorse.bbs_mod.ui.film.replays.ReplayListEntry";
-    /** Present in BBS FS 2.7+, absent in 2.5.2 / 2.1 / CML. Fully qualified. */
-    private static final String FS27_PROBE_CLASS = "mchorse.bbs_mod.api.BBSAddonMod";
 
     private static final String[] FS_MOD_IDS = {"bbs_fs", "bbs-fs", "bbsfs", "bbs_mod_fs"};
     private static final String[] CML_MOD_IDS = {"bbs_cml", "bbs-cml", "bbscml", "bbs_cml_edition", "bbs_mod_cml"};
@@ -49,10 +45,10 @@ public enum BBSFork
         return this.label;
     }
 
-    /** True for Wemppy FS, BBS 2.7+, and the BBS 2.1 FS fork (shared FS-shaped render hooks). */
+    /** True for Wemppy FS (2.7+) and the BBS 2.1 FS fork (shared FS-shaped render hooks). */
     public boolean isFsFamily()
     {
-        return this == FS || this == FS21 || this == FS27;
+        return this == FS || this == FS21;
     }
 
     /** Loader-metadata only. Safe during mixin bootstrap. */
@@ -71,25 +67,17 @@ public enum BBSFork
         }
         else if (isWemppyFsByName() || anyLoaded(FS_MOD_IDS))
         {
-            fork = isFs27ByMetadata() || classPresent(FS27_PROBE_CLASS) ? FS27 : FS;
+            fork = FS;
         }
         else if (isFs21ByMetadata())
         {
             fork = FS21;
         }
-        else if (classPresent(FS27_PROBE_CLASS))
-        {
-            fork = FS27;
-        }
         else if (classPresent(FS_ONLY_CLASS))
         {
             // Some FS builds ship under the shared "bbs" id with no
             // distinguishing name either -- the class probe is the last
-            // resort. Safe to run here too: by the time anything actually
-            // calls fromLoadedMods() for real gating decisions, mixin
-            // bootstrap for THIS addon's own targets has already happened;
-            // it's only unsafe to probe a class that one of our OWN mixins
-            // also targets, and ReplayListEntry isn't one of them.
+            // resort.
             fork = FS;
         }
 
@@ -155,27 +143,6 @@ public enum BBSFork
             String version = meta.getVersion().getFriendlyString();
 
             return version != null && version.startsWith("2.1-");
-        }
-        catch (Throwable t)
-        {
-            return false;
-        }
-    }
-
-    private static boolean isFs27ByMetadata()
-    {
-        try
-        {
-            Optional<ModContainer> container = FabricLoader.getInstance().getModContainer(BBS_MOD_ID);
-
-            if (container.isEmpty())
-            {
-                return false;
-            }
-
-            String version = container.get().getMetadata().getVersion().getFriendlyString();
-
-            return version != null && (version.startsWith("2.7") || version.startsWith("2.8") || version.startsWith("2.9"));
         }
         catch (Throwable t)
         {

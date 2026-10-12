@@ -21,9 +21,9 @@ public class BBSFbxClientMod implements ClientModInitializer
     {
         BBSFork fork = BBSFork.fromLoadedMods();
 
-        if (fork == BBSFork.FS27)
+        if (fork == BBSFork.FS)
         {
-            LOGGER.info("[BBS Fbx Addon] Initializing client for BBS FS 2.7+");
+            LOGGER.info("[BBS Fbx Addon] Initializing client for BBS FS (2.7+)");
             BBSFbxFS27Helper.register();
         }
     }
