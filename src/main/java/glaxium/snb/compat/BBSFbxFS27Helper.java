@@ -1,6 +1,5 @@
 package glaxium.snb.compat;
 
-import glaxium.snb.BBSFbxAddon;
 import glaxium.snb.model.bobj.MinecraftTextureSourcePack;
 
 import mchorse.bbs_mod.BBSMod;
@@ -18,7 +17,8 @@ import org.slf4j.LoggerFactory;
 public final class BBSFbxFS27Helper
 {
     private static final Logger LOGGER = LoggerFactory.getLogger("BBS Fbx Addon");
-    private static boolean registered = false;
+    private static boolean sourcePacksRegistered = false;
+    private static boolean l10nRegistered = false;
 
     private BBSFbxFS27Helper()
     {
@@ -26,32 +26,49 @@ public final class BBSFbxFS27Helper
 
     public static synchronized void register()
     {
-        if (registered)
+        registerSourcePacks();
+        registerL10n();
+    }
+
+    public static synchronized void registerSourcePacks()
+    {
+        if (sourcePacksRegistered)
         {
             return;
         }
 
-        registered = true;
-
         try
         {
-            BBSMod.getProvider().register(new InternalAssetsSourcePack("bbs_fbx", "assets/bbs_fbx", BBSFbxAddon.class));
+            BBSMod.getProvider().register(new InternalAssetsSourcePack("bbs_fbx", "assets/bbs_fbx", BBSFbxFS27Helper.class));
             BBSMod.getProvider().register(new MinecraftTextureSourcePack());
-            LOGGER.info("[BBS Fbx Addon] Registered source packs for BBS FS 2.7+");
+            sourcePacksRegistered = true;
+            LOGGER.info("[BBS Fbx Addon] Registered source packs");
         }
         catch (Throwable t)
         {
-            LOGGER.error("[BBS Fbx Addon] Failed to register source packs on BBS FS 2.7: " + t.getMessage(), t);
+            LOGGER.error("[BBS Fbx Addon] Failed to register source packs: " + t.getMessage(), t);
+        }
+    }
+
+    public static synchronized void registerL10n()
+    {
+        if (l10nRegistered)
+        {
+            return;
         }
 
         try
         {
-            BBSModClient.getL10n().registerOne((lang) -> new Link("bbs_fbx", "lang/" + lang + ".json"));
-            LOGGER.info("[BBS Fbx Addon] Registered L10n for BBS FS 2.7+");
+            if (BBSModClient.getL10n() != null)
+            {
+                BBSModClient.getL10n().registerOne((lang) -> new Link("bbs_fbx", "lang/" + lang + ".json"));
+                l10nRegistered = true;
+                LOGGER.info("[BBS Fbx Addon] Registered L10n");
+            }
         }
         catch (Throwable t)
         {
-            LOGGER.error("[BBS Fbx Addon] Failed to register L10n on BBS FS 2.7: " + t.getMessage(), t);
+            LOGGER.error("[BBS Fbx Addon] Failed to register L10n: " + t.getMessage(), t);
         }
     }
 }

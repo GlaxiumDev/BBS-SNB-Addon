@@ -1,6 +1,7 @@
 package glaxium.snb.mixin;
 
-import glaxium.snb.BBSFbxAddon;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import glaxium.snb.model.bbssnb.BBSSNBModelLoader;
 import glaxium.snb.model.blockbuster.BlockbusterModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
@@ -10,9 +11,12 @@ import glaxium.snb.model.fbx.loaders.SceneFormat;
 
 import mchorse.bbs_mod.cubic.ModelInstance;
 import mchorse.bbs_mod.cubic.model.ModelManager;
+import mchorse.bbs_mod.cubic.model.loaders.IModelLoader;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.utils.watchdog.WatchDogEvent;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -41,48 +45,70 @@ import java.util.List;
 @Mixin(value = ModelManager.class, remap = false)
 public class ModelManagerMixin
 {
+    private static final Logger LOGGER = LoggerFactory.getLogger("BBS Fbx Addon");
+    @Inject(method = "createLoaders", at = @At("RETURN"), cancellable = true, remap = false, require = 0)
+    private static void bbsFbx$addLoadersToCreateLoaders(CallbackInfoReturnable<List<IModelLoader>> info)
+    {
+        List<IModelLoader> list = info.getReturnValue();
+        if (list != null)
+        {
+            list.add(Math.min(1, list.size()), new BBSSNBModelLoader());
+            list.add(Math.min(2, list.size()), new BlockbusterModelLoader());
+            list.add(Math.min(3, list.size()), new FBXModelLoader());
+        }
+    }
+
     @Inject(method = "setupLoaders", at = @At("TAIL"), remap = false)
     private void bbsFbx$registerFbxLoader(CallbackInfo info)
     {
         ModelManager manager = (ModelManager) (Object) this;
-        /* Stock order starts with BOBJ then Cubic. Keep BOBJ's established
-         * priority, but claim marked BBS S&B packages before CubicModelLoader
-         * mistakes their .bbs.json extension for the legacy cubic schema. */
-        manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
-        manager.loaders.add(Math.min(2, manager.loaders.size()), new BlockbusterModelLoader());
 
-        /* Slot our scene loader ahead of native scene loaders. CML 2.1.1
-         * adds FBXModelLoader before its existing GLTFModelLoader; either
-         * can claim a scene before the addon's material data is populated.
-         * GLTFModelLoader imports glTF/GLB with a single model texture
-         * (no per-material split) -- placing ours after it (the old add-at-end
-         * behavior) meant every glTF/GLB on CML went through the native
-         * loader and never saw multi-texture. FBXModelLoader returns null for
-         * any folder without an importable scene file, so running it earlier
-         * never steals BOBJ/cubic/vox/.bbs.json models from the native
-         * loaders. Found by simple-name so this compiles against Base/FS too
-         * (neither has the CML class). */
-        FBXModelLoader fbxLoader = new FBXModelLoader();
-        int insertAt = -1;
-
+        boolean hasFbx = false;
         for (int i = 0; i < manager.loaders.size(); i++)
         {
             String name = manager.loaders.get(i).getClass().getSimpleName();
-
-            if (name.equals("FBXModelLoader") || name.equals("GLTFModelLoader"))
+            if (name.equals("FBXModelLoader"))
             {
-                insertAt = i;
+                hasFbx = true;
                 break;
             }
         }
 
-        if (insertAt < 0)
+        if (!hasFbx)
         {
-            insertAt = Math.min(3, manager.loaders.size());
+            /* Stock order starts with BOBJ then Cubic. Keep BOBJ's established
+             * priority, but claim marked BBS S&B packages before CubicModelLoader
+             * mistakes their .bbs.json extension for the legacy cubic schema. */
+            manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
+            manager.loaders.add(Math.min(2, manager.loaders.size()), new BlockbusterModelLoader());
+
+            /* Slot our scene loader ahead of native scene loaders. CML 2.1.1
+             * adds FBXModelLoader before its existing GLTFModelLoader; either
+             * can claim a scene before the addon's material data is populated. */
+            FBXModelLoader fbxLoader = new FBXModelLoader();
+            int insertAt = -1;
+
+            for (int i = 0; i < manager.loaders.size(); i++)
+            {
+                String name = manager.loaders.get(i).getClass().getSimpleName();
+
+                if (name.equals("FBXModelLoader") || name.equals("GLTFModelLoader"))
+                {
+                    insertAt = i;
+                    break;
+                }
+            }
+
+            if (insertAt < 0)
+            {
+                insertAt = Math.min(3, manager.loaders.size());
+            }
+
+            manager.loaders.add(insertAt, fbxLoader);
+            LOGGER.info("BBS S&B and FBX/glTF model loaders registered to manager.loaders");
         }
 
-        manager.loaders.add(insertAt, fbxLoader);
-        BBSFbxAddon.LOGGER.info("BBS S&B and FBX/glTF model loaders registered");
+        glaxium.snb.compat.BBSFbxFS27Helper.registerL10n();
     }
 
     @Inject(method = "isRelodable", at = @At("HEAD"), cancellable = true, remap = false)
