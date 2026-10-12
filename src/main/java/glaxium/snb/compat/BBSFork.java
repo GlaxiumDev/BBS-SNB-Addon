@@ -11,25 +11,24 @@ import java.util.Optional;
  * Which BBS this addon is currently running on top of.
  *
  * <p>Used by {@link glaxium.snb.BBSFbxMixinPlugin} to pick fork-gated mixins
- * where Base / Wemppy FS / CML / BBS 2.1 (FS fork) disagree on method
+ * where Wemppy FS / CML / BBS 2.1 (FS fork) disagree on method
  * signatures. Detection is loader-metadata only ({@link #fromLoadedMods()}),
  * which is safe during mixin bootstrap.</p>
  */
 public enum BBSFork
 {
-    BASE("BBS Base"),
     FS("BBS FS"),
     /** McHorse/community BBS 2.1 line — FS-shaped render APIs, older SimpleVAO/FormUtils. */
     FS21("BBS 2.1 (FS fork)"),
     CML("BBS CML Edition");
 
-    /** Present in FS / FS21, absent in Base. Fully qualified. */
+    /** Present in FS / FS21. Fully qualified. */
     private static final String FS_ONLY_CLASS = "mchorse.bbs_mod.ui.film.replays.ReplayListEntry";
 
     private static final String[] FS_MOD_IDS = {"bbs_fs", "bbs-fs", "bbsfs", "bbs_mod_fs"};
     private static final String[] CML_MOD_IDS = {"bbs_cml", "bbs-cml", "bbscml", "bbs_cml_edition", "bbs_mod_cml"};
 
-    /** The mod id every known fork -- Base, FS, FS21, and CML -- actually publishes under. */
+    /** The mod id every known fork -- FS, FS21, and CML -- actually publishes under. */
     private static final String BBS_MOD_ID = "bbs";
 
     private static BBSFork cached;
@@ -60,7 +59,7 @@ public enum BBSFork
             return cached;
         }
 
-        BBSFork fork = BASE;
+        BBSFork fork = null;
 
         if (isCmlByName() || anyLoaded(CML_MOD_IDS))
         {
@@ -116,9 +115,8 @@ public enum BBSFork
     }
 
     /**
-     * BBS 2.1 (FS fork): shared id/name with Base, distinguished by
-     * description, custom {@code bbs:git_commit}, or version {@code 2.1-*}
-     * (not CML's {@code 2.1.1-*}).
+     * BBS 2.1 (FS fork): distinguished by description, custom
+     * {@code bbs:git_commit}, or version {@code 2.1-*} (not CML's {@code 2.1.1-*}).
      */
     private static boolean isFs21ByMetadata()
     {

@@ -22,7 +22,7 @@ import org.lwjgl.opengl.GL30;
  * call into this class at all -- it kept its own separate, pre-existing
  * copy of the same algorithm).</p>
  *
- * <p>{@link glaxium.snb.mixin.base.BOBJModelVAOMixinBase} and
+ * <p>{@code BOBJModelVAOMixinFS} and
  * {@link glaxium.snb.mixin.fs.BOBJModelVAOMixinFS} both call into
  * this; {@code mixin.cml.BOBJModelVAOMixinCML} keeps its own
  * pre-existing, independently-written copy of the same algorithm rather

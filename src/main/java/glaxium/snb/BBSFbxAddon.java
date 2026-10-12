@@ -8,6 +8,7 @@ import mchorse.bbs_mod.l10n.L10n;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.resources.packs.InternalAssetsSourcePack;
 
+import glaxium.snb.compat.BBSFork;
 import glaxium.snb.model.bobj.MinecraftTextureSourcePack;
 
 import java.util.List;
@@ -20,24 +21,23 @@ import org.slf4j.LoggerFactory;
  *
  * <p>{@code RegisterL10nEvent} and {@code RegisterSourcePacksEvent} are
  * genuinely native, common-bus BBS API -- present with an identical shape in
- * BBS Base, BBS FS and BBS CML EDITION (unlike model-loader/importer
+ * BBS FS and BBS CML EDITION (unlike model-loader/importer
  * registration below), so this class needs no fork-specific handling and
- * works unmodified on all three.</p>
+ * works unmodified on both.</p>
  *
  * <p>Model-loader and importer registration deliberately do NOT go through
  * {@code RegisterModelLoadersEvent}/{@code RegisterImportersEvent} here, even
  * though CML ships those natively and BBS Addon Engine can supply them on
- * Base/FS. Reason: {@code ModelManagerMixin} and {@code ImportersMixin}
+ * FS. Reason: {@code ModelManagerMixin} and {@code ImportersMixin}
  * already register the FBX loader/importer unconditionally on every fork by
  * mixing directly into {@code ModelManager}/{@code Importers}, which are
- * identical across Base, FS and CML (verified directly against the Base
- * 1.7.7-1.20.4 and BBS CML EDITION 2.0-beta-1-1.20.4 jars). Also subscribing
+ * identical across FS and CML. Also subscribing
  * to those events would register a SECOND copy of the loader/importer
- * whenever the event path is available (native CML, or Base/FS with the
+ * whenever the event path is available (native CML, or FS with the
  * engine installed) -- so this addon intentionally has exactly one
  * registration path per hook, not two competing ones. This is why it does
  * not depend on {@code bbs-addon-engine} at all: the mixin path already
- * covers Base and FS without it.</p>
+ * covers FS without it.</p>
  */
 public class BBSFbxAddon implements BBSAddonMod
 {
@@ -45,7 +45,15 @@ public class BBSFbxAddon implements BBSAddonMod
 
     public BBSFbxAddon()
     {
-        LOGGER.info("BBS Fbx Addon ready");
+        BBSFork fork = BBSFork.fromLoadedMods();
+        if (fork == null)
+        {
+            LOGGER.error("BBS 1.7.7 (Base) is no longer supported by BBS FBX Ultimate! Please use BBS FS or BBS CML Edition.");
+        }
+        else
+        {
+            LOGGER.info("BBS Fbx Addon ready for " + fork.label());
+        }
     }
 
     /**
