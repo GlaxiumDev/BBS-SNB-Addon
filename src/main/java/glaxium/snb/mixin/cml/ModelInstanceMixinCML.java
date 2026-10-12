@@ -35,7 +35,7 @@ import java.util.function.Supplier;
  * CML variant of the shape-key hook-up redirect. This is the ONE place Base,
  * FS and CML genuinely disagree: {@code ModelInstance.render(...)} takes a
  * different final parameter on each --
- * {@link glaxium.snb.mixin.base.ModelInstanceMixinBase Base has no
+ * {@code ModelInstanceMixinCML}: has no
  * texture parameter at all}, FS takes a
  * {@code Function<String, Link> textureResolver}
  * ({@link glaxium.snb.mixin.fs.ModelInstanceMixinFS}), and CML takes
