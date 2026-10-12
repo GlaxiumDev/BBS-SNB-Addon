@@ -18,8 +18,14 @@
   "icon": "assets/bbs_fbx/icon.png",
   "environment": "client",
   "entrypoints": {
+    "client": [
+      "glaxium.snb.BBSFbxClientMod"
+    ],
     "bbs-addon": [
-      "glaxium.snb.BBSFbxAddon"
+      {
+        "adapter": "glaxium.snb.compat.BBSAddonEntrypointAdapter",
+        "value": "glaxium.snb.BBSFbxAddon"
+      }
     ]
   },
   "mixins": [
