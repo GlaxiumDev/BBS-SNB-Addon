@@ -3,7 +3,6 @@ package glaxium.snb.mixin;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import glaxium.snb.model.bbssnb.BBSSNBModelLoader;
-import glaxium.snb.model.blockbuster.BlockbusterModelLoader;
 import glaxium.snb.model.fbx.loaders.FBXModelLoadCache;
 import glaxium.snb.model.fbx.loaders.FBXModelLoader;
 import glaxium.snb.model.fbx.loaders.ModelLoadInFlight;
@@ -15,8 +14,6 @@ import mchorse.bbs_mod.cubic.model.loaders.IModelLoader;
 import mchorse.bbs_mod.resources.Link;
 import mchorse.bbs_mod.utils.watchdog.WatchDogEvent;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -53,8 +50,7 @@ public class ModelManagerMixin
         if (list != null)
         {
             list.add(Math.min(1, list.size()), new BBSSNBModelLoader());
-            list.add(Math.min(2, list.size()), new BlockbusterModelLoader());
-            list.add(Math.min(3, list.size()), new FBXModelLoader());
+            list.add(Math.min(2, list.size()), new FBXModelLoader());
         }
     }
 
@@ -80,7 +76,6 @@ public class ModelManagerMixin
              * priority, but claim marked BBS S&B packages before CubicModelLoader
              * mistakes their .bbs.json extension for the legacy cubic schema. */
             manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
-            manager.loaders.add(Math.min(2, manager.loaders.size()), new BlockbusterModelLoader());
 
             /* Slot our scene loader ahead of native scene loaders. CML 2.1.1
              * adds FBXModelLoader before its existing GLTFModelLoader; either
@@ -101,7 +96,7 @@ public class ModelManagerMixin
 
             if (insertAt < 0)
             {
-                insertAt = Math.min(3, manager.loaders.size());
+                insertAt = Math.min(2, manager.loaders.size());
             }
 
             manager.loaders.add(insertAt, fbxLoader);
@@ -131,53 +126,14 @@ public class ModelManagerMixin
         if (path.startsWith(ModelManager.MODELS_PREFIX)
                 && !path.contains("/animations/")
                 && !path.contains("/shapes/")
-                && BlockbusterModelLoader.isFolderModelJson(link))
-        {
-            info.setReturnValue(true);
-            return;
-        }
-
-        if (path.startsWith(ModelManager.MODELS_PREFIX)
-                && !path.contains("/animations/")
-                && !path.contains("/shapes/")
-                && BlockbusterModelLoader.isFolderStandaloneLegacyAsset(((ModelManager) (Object) this).provider, link))
-        {
-            info.setReturnValue(true);
-            return;
-        }
-
-        if (path.startsWith(ModelManager.MODELS_PREFIX)
-                && !path.contains("/animations/")
-                && !path.contains("/shapes/")
                 && SceneFormat.fromPath(path) != null)
         {
             info.setReturnValue(true);
         }
     }
 
-    @Inject(method = "getAvailableKeys", at = @At("RETURN"), remap = false)
-    private void bbsFbx$addLegacyStandaloneModels(CallbackInfoReturnable<List<String>> info)
-    {
-        List<String> keys = info.getReturnValue();
-
-        if (keys == null)
-        {
-            return;
-        }
-
-        ModelManager manager = (ModelManager) (Object) this;
-
-        for (String id : BlockbusterModelLoader.discoverStandalone(manager.provider))
-        {
-            if (!keys.contains(id))
-            {
-                keys.add(id);
-            }
-        }
-    }
-
     @Inject(method = "accept", at = @At("HEAD"), cancellable = true, remap = false)
-    private void bbsFbx$reloadLegacyStandalone(Path path, WatchDogEvent event, CallbackInfo info)
+    private void bbsFbx$reloadFbxScene(Path path, WatchDogEvent event, CallbackInfo info)
     {
         ModelManager manager = (ModelManager) (Object) this;
         Link link = manager.provider.getLink(path.toFile());
@@ -191,28 +147,7 @@ public class ModelManagerMixin
              * The game's own accept() below still removes the live
              * instance, since isRelodable() covers scene paths. */
             FBXModelLoadCache.invalidate(link.path);
-            return;
         }
-
-        if (link == null || !BlockbusterModelLoader.isStandaloneCandidatePath(link.path))
-        {
-            return;
-        }
-
-        if (event != WatchDogEvent.DELETED && !BlockbusterModelLoader.isStandaloneLegacyAsset(manager.provider, link))
-        {
-            return;
-        }
-
-        String id = BlockbusterModelLoader.standaloneId(link.path);
-        ModelInstance instance = manager.models.remove(id);
-
-        if (instance != null)
-        {
-            instance.delete();
-        }
-
-        info.cancel();
     }
 
     /**

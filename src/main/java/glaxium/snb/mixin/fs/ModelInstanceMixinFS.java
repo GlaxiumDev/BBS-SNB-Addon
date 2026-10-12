@@ -6,8 +6,6 @@ import glaxium.snb.model.fbx.loaders.IFbxModel;
 import glaxium.snb.model.fbx.loaders.IModelMaterialTextures;
 import glaxium.snb.model.fbx.loaders.IShapeKeyHolder;
 import glaxium.snb.render.MaterialTextureDelegate;
-import glaxium.snb.model.blockbuster.LegacyBBModel;
-import glaxium.snb.model.blockbuster.LegacyBBRenderer;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -47,18 +45,6 @@ public abstract class ModelInstanceMixinFS implements IModelMaterialTextures
     @Shadow public List<String> materials;
     @Shadow public Map<String, Link> materialTextures;
 
-    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
-    private void bbsFbx$renderLegacyBB(
-            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
-            int light, int overlay, StencilMap stencilMap, ShapeKeys keys,
-            Function<String, Link> textureResolver, CallbackInfo ci)
-    {
-        if (this.model instanceof LegacyBBModel legacy)
-        {
-            LegacyBBRenderer.render(legacy, stack, program, color, light, overlay, stencilMap);
-            ci.cancel();
-        }
-    }
 
     @Inject(method = "<init>", at = @At("RETURN"), remap = false)
     private void bbsFbx$seedFbxMaterials(CallbackInfo info)

@@ -10,8 +10,6 @@
     "ImportersMixin",
     "UITexturePickerMixin",
     "BOBJModelMixin",
-    "LegacyModelInstanceMixin",
-    "ProceduralAnimatorLegacyMixin",
     "BOBJModelLoaderArmorMixin",
     "BOBJModelVAOMixin",
     "AnimatorMixin",
