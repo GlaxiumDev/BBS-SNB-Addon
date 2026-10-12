@@ -59,38 +59,53 @@ public class ModelManagerMixin
     {
         ModelManager manager = (ModelManager) (Object) this;
 
-        boolean hasFbx = false;
-        for (int i = 0; i < manager.loaders.size(); i++)
+        boolean hasOurFbx = false;
+        for (IModelLoader loader : manager.loaders)
         {
-            String name = manager.loaders.get(i).getClass().getSimpleName();
-            if (name.equals("FBXModelLoader"))
+            if (loader instanceof FBXModelLoader)
             {
-                hasFbx = true;
+                hasOurFbx = true;
                 break;
             }
         }
 
-        if (!hasFbx)
+        if (!hasOurFbx)
         {
             /* Stock order starts with BOBJ then Cubic. Keep BOBJ's established
              * priority, but claim marked BBS S&B packages before CubicModelLoader
              * mistakes their .bbs.json extension for the legacy cubic schema. */
-            manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
+            boolean hasSnb = false;
+            for (IModelLoader loader : manager.loaders)
+            {
+                if (loader instanceof BBSSNBModelLoader)
+                {
+                    hasSnb = true;
+                    break;
+                }
+            }
+
+            if (!hasSnb)
+            {
+                manager.loaders.add(Math.min(1, manager.loaders.size()), new BBSSNBModelLoader());
+            }
 
             /* Slot our scene loader ahead of native scene loaders. CML 2.1.1
-             * adds FBXModelLoader before its existing GLTFModelLoader; either
+             * adds native FBXModelLoader before GLTFModelLoader; either
              * can claim a scene before the addon's material data is populated. */
             FBXModelLoader fbxLoader = new FBXModelLoader();
             int insertAt = -1;
 
             for (int i = 0; i < manager.loaders.size(); i++)
             {
-                String name = manager.loaders.get(i).getClass().getSimpleName();
-
-                if (name.equals("FBXModelLoader") || name.equals("GLTFModelLoader"))
+                IModelLoader loader = manager.loaders.get(i);
+                if (!(loader instanceof FBXModelLoader))
                 {
-                    insertAt = i;
-                    break;
+                    String name = loader.getClass().getSimpleName();
+                    if (name.equals("FBXModelLoader") || name.equals("GLTFModelLoader"))
+                    {
+                        insertAt = i;
+                        break;
+                    }
                 }
             }
 
