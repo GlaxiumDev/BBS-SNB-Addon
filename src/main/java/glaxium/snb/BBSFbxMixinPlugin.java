@@ -75,6 +75,12 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
             return false;
         }
 
+        if (mixinClassName.endsWith(".ModelInstanceVAOMixin")
+                || mixinClassName.endsWith(".CubicVAORendererMixinCML"))
+        {
+            return false;
+        }
+
         if (mixinClassName.startsWith(CML_PACKAGE))
         {
             if (mixinClassName.equals(CML_PACKAGE + "PreviewFrameMixinCML")
