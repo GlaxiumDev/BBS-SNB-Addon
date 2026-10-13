@@ -1,8 +1,10 @@
 package glaxium.snb.mixin.cml;
 
+import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
 import glaxium.snb.model.fbx.loaders.IMaterialTextureHolder;
+import glaxium.snb.model.fbx.loaders.IModelMaterialTextures;
 import glaxium.snb.model.fbx.loaders.IShapeKeyHolder;
 import glaxium.snb.render.MaterialTextureDelegate;
 
@@ -25,8 +27,10 @@ import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -60,6 +64,110 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
 {
     @Shadow public IModel model;
     @Shadow public String id;
+    @Shadow public List<String> materials;
+    @Shadow public Map<String, Link> materialTextures;
+
+    @Inject(method = "<init>", at = @At("RETURN"), remap = false)
+    private void bbsFbx$seedMaterialsCML(CallbackInfo info)
+    {
+        this.bbsFbx$populateMaterialsFromModel();
+    }
+
+    @Inject(method = "copy", at = @At("RETURN"), remap = false)
+    private void bbsFbx$copyMaterialsCML(CallbackInfoReturnable<ModelInstance> cir)
+    {
+        ModelInstance copy = cir.getReturnValue();
+
+        if (copy != null)
+        {
+            if (this.materials != null && !this.materials.isEmpty())
+            {
+                for (String mat : this.materials)
+                {
+                    if (!copy.materials.contains(mat))
+                    {
+                        copy.materials.add(mat);
+                    }
+                }
+            }
+
+            if (this.materialTextures != null && !this.materialTextures.isEmpty())
+            {
+                copy.materialTextures.putAll(this.materialTextures);
+            }
+
+            if (copy.materials.isEmpty())
+            {
+                ((ModelInstanceMixinCML) (Object) copy).bbsFbx$populateMaterialsFromModel();
+            }
+        }
+    }
+
+    @Unique
+    private void bbsFbx$populateMaterialsFromModel()
+    {
+        if (this.materials == null || this.materialTextures == null)
+        {
+            return;
+        }
+
+        if (this.model instanceof IFbxModel fbxModel)
+        {
+            FBXCompiledData data = fbxModel.bbsFbx$getFbxData();
+
+            if (data != null && data.materialNames != null && data.materialNames.length > 0)
+            {
+                for (int i = 0; i < data.materialNames.length; i++)
+                {
+                    String name = data.materialNames[i];
+
+                    if (name == null || EmoticonArmorSidecar.isArmorMesh(name))
+                    {
+                        continue;
+                    }
+
+                    if (!this.materials.contains(name))
+                    {
+                        this.materials.add(name);
+                    }
+
+                    Link texture = data.materialTextures != null && i < data.materialTextures.length ? data.materialTextures[i] : null;
+
+                    if (texture != null && !this.materialTextures.containsKey(name))
+                    {
+                        this.materialTextures.put(name, texture);
+                    }
+                }
+            }
+        }
+        else if (this.model instanceof IModelMaterialTextures cubic)
+        {
+            List<String> names = cubic.bbsFbx$getMaterials();
+
+            if (names != null && !names.isEmpty())
+            {
+                for (String name : names)
+                {
+                    if (name == null || name.isEmpty() || EmoticonArmorSidecar.isArmorMesh(name))
+                    {
+                        continue;
+                    }
+
+                    if (!this.materials.contains(name))
+                    {
+                        this.materials.add(name);
+                    }
+
+                    Link texture = cubic.bbsFbx$getDefaultMaterialTexture(name);
+
+                    if (texture != null && !this.materialTextures.containsKey(name))
+                    {
+                        this.materialTextures.put(name, texture);
+                    }
+                }
+            }
+        }
+    }
 
 
     @Redirect(

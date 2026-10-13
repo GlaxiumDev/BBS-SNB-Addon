@@ -11,6 +11,7 @@ import mchorse.bbs_mod.cubic.data.model.ModelGroup;
 import mchorse.bbs_mod.cubic.render.CubicRenderer;
 import mchorse.bbs_mod.cubic.render.vao.ModelVAO;
 
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.util.math.MatrixStack;
 
@@ -86,13 +87,35 @@ public abstract class ModelInstanceVAOMixin implements IModelInstanceMaterialVao
 
         this.bbsFbx$releaseMaterialVaos();
         this.bbsFbx$ownsMaterialVaos = true;
-        this.bbsFbx$materialVaosReady = true;
 
-        MinecraftClient.getInstance().execute(() ->
+        Runnable buildTask = () ->
         {
             CubicRenderer.processRenderModel(
                     new CubicVAOBucketingBuilder(this.bbsFbx$materialVaos), null, new MatrixStack(), cubic);
-        });
+            this.bbsFbx$materialVaosReady = !this.bbsFbx$materialVaos.isEmpty();
+
+            try
+            {
+                Map<ModelGroup, Map<String, ModelVAO>> nativeVaos = ((ModelInstance) (Object) this).getVaos();
+
+                if (nativeVaos != null)
+                {
+                    nativeVaos.putAll(this.bbsFbx$materialVaos);
+                }
+            }
+            catch (Throwable ignored)
+            {
+            }
+        };
+
+        if (RenderSystem.isOnRenderThread())
+        {
+            buildTask.run();
+        }
+        else
+        {
+            MinecraftClient.getInstance().execute(buildTask);
+        }
 
         ci.cancel();
     }
@@ -119,6 +142,12 @@ public abstract class ModelInstanceVAOMixin implements IModelInstanceMaterialVao
         Map<ModelGroup, Map<String, ModelVAO>> sourceVaos =
                 ((IModelInstanceMaterialVaos) source).bbsFbx$getMaterialVaos();
 
+        if (sourceVaos.isEmpty() && source.model instanceof Model sourceCubic && RenderSystem.isOnRenderThread())
+        {
+            CubicRenderer.processRenderModel(
+                    new CubicVAOBucketingBuilder(sourceVaos), null, new MatrixStack(), sourceCubic);
+        }
+
         if (sourceVaos.isEmpty())
         {
             return;
@@ -139,6 +168,19 @@ public abstract class ModelInstanceVAOMixin implements IModelInstanceMaterialVao
         }
 
         this.bbsFbx$materialVaosReady = !this.bbsFbx$materialVaos.isEmpty();
+
+        try
+        {
+            Map<ModelGroup, Map<String, ModelVAO>> nativeVaos = ((ModelInstance) (Object) this).getVaos();
+
+            if (nativeVaos != null)
+            {
+                nativeVaos.putAll(this.bbsFbx$materialVaos);
+            }
+        }
+        catch (Throwable ignored)
+        {
+        }
     }
 
     @Inject(method = "delete", at = @At("HEAD"), remap = false)

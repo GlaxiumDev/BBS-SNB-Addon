@@ -169,6 +169,7 @@ public abstract class CubicModelLoaderMixinBaseCML
                     modelMesh.baseData.fill(mesh, theModel.textureWidth, theModel.textureHeight);
 
                     String name = mesh.material != null && mesh.material.name != null ? mesh.material.name : "";
+                    modelMesh.material = name;
                     ((IModelMeshMaterial) modelMesh).bbsFbx$setMaterial(name);
 
                     if (!name.isEmpty() && seen.add(name))
@@ -194,6 +195,19 @@ public abstract class CubicModelLoaderMixinBaseCML
             ((IModelMaterialTextures) theModel).bbsFbx$setMaterialTextures(materialNames, materialTextures);
 
             ModelInstance instance = new ModelInstance(id, theModel, new Animations(models.parser), modelTexture);
+
+            for (String matName : materialNames)
+            {
+                if (!instance.materials.contains(matName))
+                {
+                    instance.materials.add(matName);
+                }
+                Link tex = materialTextures.get(matName);
+                if (tex != null)
+                {
+                    instance.materialTextures.put(matName, tex);
+                }
+            }
 
             instance.applyConfig(config);
             cir.setReturnValue(instance);
