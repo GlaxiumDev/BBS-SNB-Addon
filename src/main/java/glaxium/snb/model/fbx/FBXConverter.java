@@ -155,23 +155,34 @@ public class FBXConverter
         }
         else
         {
+            boolean centimeterSkeleton = needsCentimeterScaleWithoutSkin(scene, nodeLocals, nodeWorldTransforms);
+            if (centimeterSkeleton)
+            {
+                globalScale[0] = FBX_UNIT_SCALE;
+                animScale = FBX_UNIT_SCALE;
+            }
+
             // One bone per scene node — every mesh object AND every mesh-less
             // Empty (locator/group) — anchored at its own Blender origin, so
             // meshes pivot around their own point and Empties show up in BBS
             // as animatable, nestable limbs/groups just like mesh objects.
             FBXArmatureBuilder.buildObjectBones(globalArmature, nodeWorldTransforms, nodeParents, rootCorrection, globalScale[0]);
-            animScale = globalScale[0];
 
-            /* Blender glTF/GLB often puts a 0.01 unit scale on a parent Empty
-             * while child object locals stay in centimetres. Object bones
-             * normalize that scale away (meter rests), but animation keys
-             * still use the raw locals — without animScale the deltas are
-             * ~100x and per-object clips explode. FBX already gets 0.01 from
-             * unitScale; pick up the same bridge from the node tree here. */
-            float bridge = unitBridgeScale(nodeLocals);
-            if (bridge > 0F && bridge < 0.5F)
+            if (!centimeterSkeleton)
             {
-                animScale = bridge;
+                animScale = globalScale[0];
+
+                /* Blender glTF/GLB often puts a 0.01 unit scale on a parent Empty
+                 * while child object locals stay in centimetres. Object bones
+                 * normalize that scale away (meter rests), but animation keys
+                 * still use the raw locals — without animScale the deltas are
+                 * ~100x and per-object clips explode. FBX already gets 0.01 from
+                 * unitScale; pick up the same bridge from the node tree here. */
+                float bridge = unitBridgeScale(nodeLocals);
+                if (bridge > 0F && bridge < 0.5F)
+                {
+                    animScale = bridge;
+                }
             }
         }
 
@@ -305,6 +316,46 @@ public class FBXConverter
         }
 
         return maxExtent > 10F && maxMeshScale < 10F;
+    }
+
+    private static boolean needsCentimeterScaleWithoutSkin(JavaScene scene, Map<String, Matrix4f> nodeLocals, Map<String, Matrix4f> nodeWorldTransforms)
+    {
+        for (Matrix4f world : nodeWorldTransforms.values())
+        {
+            Vector3f t = new Vector3f();
+            world.getTranslation(t);
+            if (Math.abs(t.x) > 10F || Math.abs(t.y) > 10F || Math.abs(t.z) > 10F)
+            {
+                return true;
+            }
+        }
+
+        for (Matrix4f local : nodeLocals.values())
+        {
+            Vector3f t = new Vector3f();
+            local.getTranslation(t);
+            if (Math.abs(t.x) > 10F || Math.abs(t.y) > 10F || Math.abs(t.z) > 10F)
+            {
+                return true;
+            }
+        }
+
+        for (JavaScene.Animation anim : scene.animations)
+        {
+            for (JavaScene.NodeAnimation na : anim.channels)
+            {
+                for (JavaScene.VectorKey key : na.positions)
+                {
+                    Vector3f v = key.value();
+                    if (Math.abs(v.x) > 10F || Math.abs(v.y) > 10F || Math.abs(v.z) > 10F)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     /**

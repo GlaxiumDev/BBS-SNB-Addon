@@ -140,6 +140,14 @@ public final class MixamoAnimationConverter
                     float y = evaluateChannel(hipsGroup, "location.y", frame);
                     float z = evaluateChannel(hipsGroup, "location.z", frame);
 
+                    // Auto-normalize if translation is in raw centimeters (> 10 blocks)
+                    if (Math.abs(x) > 10.0F || Math.abs(y) > 10.0F || Math.abs(z) > 10.0F)
+                    {
+                        x *= 0.01F;
+                        y *= 0.01F;
+                        z *= 0.01F;
+                    }
+
                     // Mixamo -Y forward to Minecraft +Y forward, preserving standing height
                     tx.insert(frame, new MolangValue(parser, new Constant(-x)));
                     ty.insert(frame, new MolangValue(parser, new Constant(y)));
