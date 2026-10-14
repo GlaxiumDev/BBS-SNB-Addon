@@ -155,7 +155,8 @@ public class FBXConverter
         }
         else
         {
-            boolean centimeterSkeleton = needsCentimeterScaleWithoutSkin(scene, nodeLocals, nodeWorldTransforms);
+            boolean centimeterSkeleton = scene.meshes.isEmpty() && !scene.animations.isEmpty()
+                    && needsCentimeterScaleWithoutSkin(scene, nodeLocals, nodeWorldTransforms);
             if (centimeterSkeleton)
             {
                 globalScale[0] = FBX_UNIT_SCALE;
