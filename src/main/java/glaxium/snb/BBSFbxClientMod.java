@@ -22,5 +22,6 @@ public class BBSFbxClientMod implements ClientModInitializer
         BBSFork fork = BBSFork.fromLoadedMods();
         LOGGER.info("[BBS Fbx Addon] Initializing client for " + (fork != null ? fork.label() : "BBS"));
         BBSFbxFS27Helper.register();
+        glaxium.snb.model.mixamo.MixamoAnimationManager.ensureDirectory(null);
     }
 }

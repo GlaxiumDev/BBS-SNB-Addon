@@ -18,28 +18,60 @@ import mchorse.bbs_mod.utils.colors.Color;
 import net.minecraft.client.gl.ShaderProgram;
 import net.minecraft.client.util.math.MatrixStack;
 
+import com.llamalad7.mixinextras.sugar.Local;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.util.function.Supplier;
-
 /**
- * FS variant of the material-texture override push/pop targeting BBS FS 2.7+.
- * Dropped the unused 'boolean ui' parameter from renderModel (12 parameters).
+ * FS variant of the material-texture override push/pop targeting BBS FS 2.7+ and BBS 2.1/2.3.2.
+ * Uses MixinExtras @Local so varying parameter counts (12, 13, 14 args) are handled cleanly.
  */
 @Mixin(value = ModelFormRenderer.class, remap = false)
 public abstract class ModelFormRendererMixinFS
 {
-    @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
-    private void bbsFbx$pushMaterialOverrides(
-            IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
-            int light, int overlay, Color color, Color ambient, boolean additive,
-            StencilMap stencilMap, float transition, MatrixStack poseStack,
+    @Shadow public abstract ModelInstance getModel();
+
+    @Inject(method = "render3D", at = @At("HEAD"), remap = false)
+    private void bbsFbx$pushMaterialOverrides3D(
+            mchorse.bbs_mod.forms.renderers.FormRenderingContext context,
             CallbackInfo info)
     {
-        CurrentEmoticonArmor.push(target, model, true);
+        IEntity target = context == null ? null : context.entity;
+        ModelInstance model = this.getModel();
+        boolean renderEquipment = context == null || (!context.ui && !context.isPicking());
+
+        bbsFbx$push(target, model, renderEquipment);
+    }
+
+    @Inject(method = "render3D", at = @At("RETURN"), remap = false)
+    private void bbsFbx$popMaterialOverrides3D(
+            mchorse.bbs_mod.forms.renderers.FormRenderingContext context,
+            CallbackInfo info)
+    {
+        bbsFbx$pop();
+    }
+
+    @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
+    private void bbsFbx$pushMaterialOverrides(
+            CallbackInfo info,
+            @Local(argsOnly = true) IEntity target,
+            @Local(argsOnly = true) ModelInstance model)
+    {
+        bbsFbx$push(target, model, true);
+    }
+
+    @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
+    private void bbsFbx$popMaterialOverrides(CallbackInfo info)
+    {
+        bbsFbx$pop();
+    }
+
+    private void bbsFbx$push(IEntity target, ModelInstance model, boolean renderEquipment)
+    {
+        CurrentEmoticonArmor.push(target, model, renderEquipment);
         Form form = ((FormRendererAccessor) (Object) this).bbsFbx$getForm();
 
         if (form instanceof ModelForm modelForm)
@@ -54,12 +86,7 @@ public abstract class ModelFormRendererMixinFS
         }
     }
 
-    @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
-    private void bbsFbx$popMaterialOverrides(
-            IEntity target, Supplier<ShaderProgram> program, MatrixStack stack, ModelInstance model,
-            int light, int overlay, Color color, Color ambient, boolean additive,
-            StencilMap stencilMap, float transition, MatrixStack poseStack,
-            CallbackInfo info)
+    private void bbsFbx$pop()
     {
         CurrentMaterialTextureOverrides.pop();
         CurrentModelTexture.pop();

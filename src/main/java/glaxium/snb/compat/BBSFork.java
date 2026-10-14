@@ -18,8 +18,8 @@ import java.util.Optional;
 public enum BBSFork
 {
     FS("BBS FS (2.7+)"),
-    /** McHorse/community BBS 2.1 line — FS-shaped render APIs, older SimpleVAO/FormUtils. */
-    FS21("BBS 2.1 (FS fork)"),
+    /** McHorse/community BBS 2.3.2 — FS-shaped render APIs with multi-pass rendering. */
+    FS21("BBS 2.3.2 (FS fork)"),
     CML("BBS CML Edition");
 
     /** Present in FS / FS21. Fully qualified. */
@@ -111,8 +111,8 @@ public enum BBSFork
     }
 
     /**
-     * BBS 2.1 (FS fork): distinguished by description, custom
-     * {@code bbs:git_commit}, or version {@code 2.1-*} (not CML's {@code 2.1.1-*}).
+     * BBS 2.1 / 2.3.2 (FS fork): distinguished by description, custom
+     * {@code bbs:git_commit}, or version {@code 2.1-*}, {@code 2.2-*}, {@code 2.3-*}.
      */
     private static boolean isFs21ByMetadata()
     {
@@ -126,23 +126,9 @@ public enum BBSFork
             }
 
             ModMetadata meta = container.get().getMetadata();
-            String description = meta.getDescription();
-
-            if (description != null && description.toUpperCase().contains("BBS FS FORK"))
-            {
-                return true;
-            }
-
-            CustomValue git = meta.getCustomValue("bbs:git_commit");
-
-            if (git != null && git.getType() == CustomValue.CvType.STRING)
-            {
-                return true;
-            }
-
             String version = meta.getVersion().getFriendlyString();
 
-            return version != null && version.startsWith("2.1-");
+            return version != null && version.startsWith("2.3.2");
         }
         catch (Throwable t)
         {

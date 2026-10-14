@@ -34,14 +34,14 @@ import java.util.TreeSet;
 import static glaxium.snb.model.fbx.loaders.java.FbxBinaryParser.Element;
 
 /** Converts a binary FBX 7.x object/connection graph into {@link JavaScene}. */
-final class JavaFbxImporter
+public final class JavaFbxImporter
 {
     private static final double FBX_TIME_UNITS_PER_SECOND = 46_186_158_000.0;
     private static final float DEG_TO_RAD = (float) (Math.PI / 180.0);
 
     private JavaFbxImporter() {}
 
-    static JavaScene read(byte[] bytes) throws IOException
+    public static JavaScene read(byte[] bytes) throws IOException
     {
         FbxBinaryParser.Document document = FbxBinaryParser.parse(bytes);
         Context context = new Context(document);

@@ -184,6 +184,8 @@ public abstract class BOBJModelLoaderMixinBaseCML
                             instance.animations.add(value);
                         }
                     }
+
+                    glaxium.snb.model.mixamo.MixamoAnimationManager.injectMixamoAnimations(id, instance, models.provider, models.parser);
                 }
 
                 instance.applyConfig(config);

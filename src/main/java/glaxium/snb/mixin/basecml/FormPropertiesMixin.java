@@ -4,7 +4,6 @@ import glaxium.snb.compat.BBSFork;
 import glaxium.snb.model.fbx.loaders.IFormMaterialTextureHolder;
 import glaxium.snb.render.MaterialTextureDelegate;
 
-import mchorse.bbs_mod.film.replays.FormProperties;
 import mchorse.bbs_mod.forms.FormUtils;
 import mchorse.bbs_mod.forms.forms.Form;
 import mchorse.bbs_mod.resources.Link;
@@ -26,25 +25,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.lang.reflect.Method;
 import java.util.Map;
 
-/**
- * Second half of the Base/CML per-material-texture-keyframe feature: teach
- * {@code FormProperties} (the film's property-keyframe store, identical on
- * Base and CML) to create, apply and reset the synthetic per-material
- * channels that {@code FormUtilsMixin} exposes.
- *
- * <p>A material channel is a {@code KeyframeChannel} whose id is exactly an
- * FBX material name of the form's model (see
- * {@link MaterialTextureDelegate#isMaterial(Form, String)}). Applying it
- * writes the interpolated {@link Link} into the form's runtime-only
- * material overrides ({@link IFormMaterialTextureHolder#bbsFbx$setRuntimeMaterialTextureOverride})
- * instead of a form property -- the film never touches the persisted
- * texture choice, and the render push in
- * {@code ModelFormRendererMixin*} picks the runtime value up on the next
- * frame. FS's {@code FormProperties} is a different class shape (native
- * per-material support already exists there), so this mixin is gated to
- * Base/CML by {@code glaxium.snb.BBSFbxMixinPlugin}.</p>
- */
-@Mixin(value = FormProperties.class, remap = false)
+@Mixin(targets = "mchorse.bbs_mod.film.replays.FormProperties", remap = false)
 public abstract class FormPropertiesMixin
 {
     @Shadow
@@ -52,6 +33,12 @@ public abstract class FormPropertiesMixin
 
     @Unique
     private static Method bbsFbx$addMethod;
+
+    @Unique
+    private static KeyframeSegment<?> bbsFbx$findSegment(KeyframeChannel channel, float tick)
+    {
+        return channel.findSegment(tick);
+    }
 
     /**
      * {@code ValueGroup.add(BaseValue)} registers the value in the group's
@@ -202,7 +189,7 @@ public abstract class FormPropertiesMixin
             return;
         }
 
-        KeyframeSegment<?> segment = channel.find(tick);
+        KeyframeSegment<?> segment = bbsFbx$findSegment(channel, tick);
 
         if (segment != null && segment.createInterpolated() instanceof Link link)
         {
@@ -248,7 +235,7 @@ public abstract class FormPropertiesMixin
             return;
         }
 
-        KeyframeSegment<?> segment = channel.find(tick);
+        KeyframeSegment<?> segment = bbsFbx$findSegment(channel, tick);
         Float value = segment != null && segment.createInterpolated() instanceof Float f ? f : null;
         boolean normal = id.endsWith(":pbr_normal_intensity");
 

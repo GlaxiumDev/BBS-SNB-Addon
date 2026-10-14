@@ -83,6 +83,11 @@ public class FBXModelLoader implements IModelLoader
     @Override
     public ModelInstance load(String id, ModelManager models, Link model, Collection<Link> links, MapType config)
     {
+        if (id != null && (id.equals("emoticons/mixamo") || id.startsWith("emoticons/mixamo/") || id.endsWith("/mixamo") || id.contains("/mixamo/")))
+        {
+            return null;
+        }
+
         Link fbxLink = null;
         SceneFormat format = null;
 

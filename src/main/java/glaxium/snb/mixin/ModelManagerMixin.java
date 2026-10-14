@@ -138,6 +138,12 @@ public class ModelManagerMixin
             return;
         }
 
+        if (path.contains("emoticons/mixamo/") || path.contains("/mixamo/"))
+        {
+            info.setReturnValue(false);
+            return;
+        }
+
         if (path.startsWith(ModelManager.MODELS_PREFIX)
                 && !path.contains("/animations/")
                 && !path.contains("/shapes/")

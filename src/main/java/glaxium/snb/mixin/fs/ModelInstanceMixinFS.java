@@ -104,46 +104,30 @@ public abstract class ModelInstanceMixinFS implements IModelMaterialTextures
         }
     }
 
-    @Redirect(
+    @Inject(
             method = "render",
-            at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/cubic/render/vao/BOBJModelVAO;updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;J)V"),
-            remap = false
+            at = @At("HEAD"),
+            remap = false,
+            require = 0
     )
-    private void bbsFbx$redirectUpdateMesh(
-            BOBJModelVAO vao, StencilMap stencilMap, long armatureKey,
-            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
-            int light, int overlay, StencilMap stencilMap2, ShapeKeys keys,
-            Function<String, Link> textureResolver)
+    private void bbsFbx$setShapeKeysOnBOBJ(
+            CallbackInfo ci,
+            @com.llamalad7.mixinextras.sugar.Local(argsOnly = true) ShapeKeys keys)
     {
-        if (vao instanceof IShapeKeyHolder holder)
+        if (this.model instanceof IFbxModel)
         {
-            holder.bbsFbx$setShapeKeys(keys);
-        }
-
-        if (bbsFbx$updateMesh27Method == null)
-        {
-            try
+            List<BOBJModelVAO> vaos = ((mchorse.bbs_mod.cubic.model.bobj.BOBJModel) this.model).getVaos();
+            if (vaos != null)
             {
-                bbsFbx$updateMesh27Method = BOBJModelVAO.class.getMethod("updateMesh", StencilMap.class, long.class);
-            }
-            catch (Throwable ignored)
-            {
-            }
-        }
-
-        if (bbsFbx$updateMesh27Method != null)
-        {
-            try
-            {
-                bbsFbx$updateMesh27Method.invoke(vao, stencilMap, armatureKey);
-                return;
-            }
-            catch (Throwable ignored)
-            {
+                for (BOBJModelVAO vao : vaos)
+                {
+                    if (vao instanceof IShapeKeyHolder holder)
+                    {
+                        holder.bbsFbx$setShapeKeys(keys);
+                    }
+                }
             }
         }
-
-        vao.updateMesh(stencilMap);
     }
 
     @Override
