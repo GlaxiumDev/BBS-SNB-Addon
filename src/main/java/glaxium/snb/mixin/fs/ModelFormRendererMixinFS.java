@@ -54,7 +54,21 @@ public abstract class ModelFormRendererMixinFS
         bbsFbx$pop();
     }
 
-    @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
+    @Inject(
+            method = {
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V"
+            },
+            at = @At("HEAD"),
+            require = 0,
+            remap = false
+    )
     private void bbsFbx$pushMaterialOverrides(
             CallbackInfo info,
             @Local(argsOnly = true) IEntity target,
@@ -63,7 +77,21 @@ public abstract class ModelFormRendererMixinFS
         bbsFbx$push(target, model, true);
     }
 
-    @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
+    @Inject(
+            method = {
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;Lmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FLnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V"
+            },
+            at = @At("RETURN"),
+            require = 0,
+            remap = false
+    )
     private void bbsFbx$popMaterialOverrides(CallbackInfo info)
     {
         bbsFbx$pop();
