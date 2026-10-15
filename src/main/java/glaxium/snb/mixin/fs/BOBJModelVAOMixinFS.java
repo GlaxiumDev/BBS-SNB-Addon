@@ -30,7 +30,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * FS variant of multi-material FBX rendering. See
- * {@link glaxium.snb.mixin.base.BOBJModelVAOMixinBase} for the Base
+ * {@code BOBJModelVAOMixinFS} for the FS
  * variant and {@link glaxium.snb.mixin.cml.BOBJModelVAOMixinCML} for
  * CML's.
  *

@@ -34,6 +34,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * CML variant of per-material rendering on the cubic VAO path. CML's native
@@ -67,6 +68,7 @@ public abstract class CubicVAORendererMixinCML
 {
     @Shadow private ModelInstance model;
     @Shadow private ShaderProgram program;
+    @Shadow private Function<String, Link> textureResolver;
 
     @Inject(
             method = "renderGroup",
@@ -82,6 +84,22 @@ public abstract class CubicVAORendererMixinCML
         }
 
         Map<String, ModelVAO> groupVaos = ((IModelInstanceMaterialVaos) this.model).bbsFbx$getMaterialVaos().get(group);
+
+        if (groupVaos == null || groupVaos.isEmpty())
+        {
+            try
+            {
+                Map<ModelGroup, Map<String, ModelVAO>> nativeVaos = this.model.getVaos();
+
+                if (nativeVaos != null)
+                {
+                    groupVaos = nativeVaos.get(group);
+                }
+            }
+            catch (Throwable ignored)
+            {
+            }
+        }
 
         if (groupVaos == null || groupVaos.isEmpty())
         {
@@ -186,6 +204,11 @@ public abstract class CubicVAORendererMixinCML
             {
                 String material = entry.getKey();
                 Link resolved = MaterialTextureDelegate.resolveMaterialTexture(iModel, material);
+
+                if (resolved == null && this.textureResolver != null)
+                {
+                    resolved = this.textureResolver.apply(material);
+                }
 
                 /* Stage this material's own PBR intensity (CML film-editor channel) so the bindTexture
                  * below snapshots it against the texture for Iris' _n/_s loaders, mirroring the BOBJ

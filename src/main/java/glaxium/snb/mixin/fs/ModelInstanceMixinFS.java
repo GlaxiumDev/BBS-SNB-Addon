@@ -3,12 +3,9 @@ package glaxium.snb.mixin.fs;
 import glaxium.snb.model.bobj.EmoticonArmorSidecar;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
-import glaxium.snb.model.fbx.loaders.IMaterialTextureHolder;
 import glaxium.snb.model.fbx.loaders.IModelMaterialTextures;
 import glaxium.snb.model.fbx.loaders.IShapeKeyHolder;
 import glaxium.snb.render.MaterialTextureDelegate;
-import glaxium.snb.model.blockbuster.LegacyBBModel;
-import glaxium.snb.model.blockbuster.LegacyBBRenderer;
 
 import mchorse.bbs_mod.cubic.IModel;
 import mchorse.bbs_mod.cubic.ModelInstance;
@@ -28,71 +25,27 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
- * FS variant of the shape-key hook-up redirect. See
- * {@link glaxium.snb.mixin.cml.ModelInstanceMixinCML} for the full
- * explanation of why three copies exist.
- *
- * <p>Confirmed directly against {@code Wemppy4/bbs-fs}'s real source:
- * {@code ModelInstance.render(...)} (java line 654) takes
- * {@code Function<String, Link> textureResolver} as its final parameter, and
- * its one call to {@code BOBJModelVAO.updateMesh(stencilMap)} (line 720)
- * sits directly in {@code render()}'s own body -- inside a
- * {@code for (BOBJModelVAO vao : vaos)} loop, but not delegated to a helper
- * method -- so this {@code @Redirect} reaches it correctly.</p>
- *
- * <p>Also implements {@link IMaterialTextureHolder}, same as
- * {@code ModelInstanceMixinBase} and for the same reason (see its doc
- * comment).</p>
- *
- * <p><b>Seed for the film editor's per-material texture keyframes.</b> FS's
- * film editor creates one keyframe sheet per material via its native
- * {@code UIReplaysEditorUtils.addMaterialTextureSheets}, which iterates
- * {@code ModelInstance.materials} (native BOBJ models get theirs filled in
- * by {@code BOBJModelLoader}). {@code BOBJModel} doesn't do that, so the
- * constructor injection below fills both {@code materials} and
- * {@code materialTextures} straight from the FBX data instead, for every
- * FBX model -- single-material ones included, matching the FS-targeted
- * sibling addon's {@code FBXTextureResolver.registerMaterials}. Those two
- * fields are public on FS's {@code ModelInstance} but absent on Base/CML --
- * hence the {@code @Shadow} declarations (which compile against any one
- * fork's jar) plus this mixin being gated to FS by
- * {@code BBSFbxMixinPlugin}.</p>
+ * FS variant of the shape-key hook-up redirect targeting BBS FS 2.7+.
+ * In BBS 2.7, BOBJModelVAO.updateMesh takes (StencilMap, long armatureKey).
  */
 @Mixin(value = ModelInstance.class, remap = false)
-public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
+public abstract class ModelInstanceMixinFS implements IModelMaterialTextures
 {
+    private static Method bbsFbx$updateMesh27Method;
+
     @Shadow public IModel model;
     @Shadow public String id;
     @Shadow public List<String> materials;
     @Shadow public Map<String, Link> materialTextures;
 
-    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
-    private void bbsFbx$renderLegacyBB(
-            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
-            int light, int overlay, StencilMap stencilMap, ShapeKeys keys,
-            Function<String, Link> textureResolver, CallbackInfo ci)
-    {
-        if (this.model instanceof LegacyBBModel legacy)
-        {
-            LegacyBBRenderer.render(legacy, stack, program, color, light, overlay, stencilMap);
-            ci.cancel();
-        }
-    }
 
-    /**
-     * Fills {@code materials}/{@code materialTextures} from the FBX data the
-     * way {@code BOBJModelLoader} fills them from {@code BOBJData.meshes}.
-     * Runs after the constructor already allocated the (empty) collections.
-     * Every FBX model is touched -- single-material models get their one
-     * material seeded too (the sibling addon's {@code registerMaterials}
-     * behavior); non-FBX models keep whatever the constructor left.
-     */
     @Inject(method = "<init>", at = @At("RETURN"), remap = false)
     private void bbsFbx$seedFbxMaterials(CallbackInfo info)
     {
@@ -118,9 +71,6 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
         {
             for (String name : names)
             {
-                /* Armor sidecar shells are equipped-state geometry, never
-                 * selectable/animated materials -- keep them out of the list
-                 * FS's picker and film-editor material sheets iterate. */
                 if (EmoticonArmorSidecar.isArmorMesh(name))
                 {
                     continue;
@@ -139,23 +89,13 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
                     continue;
                 }
 
-                Link texture = defaults != null && i < defaults.length
-                        ? defaults[i]
-                        : MaterialTextureDelegate.getDefaultMaterialTexture(this.model, names.get(i));
+                Link texture = defaults != null && i < defaults.length ? defaults[i] : null;
 
-                if (texture != null)
+                if (texture != null && !this.materialTextures.containsKey(names.get(i)))
                 {
                     this.materialTextures.put(names.get(i), texture);
                 }
             }
-        }
-
-        /* Native BOBJ (emoticon armor.bobj) already fills materials from mesh
-         * names before this inject -- strip armor shells so the model-panel
-         * texture picker and film material sheets match Base/CML/FS. */
-        if (this.materials != null)
-        {
-            this.materials.removeIf(EmoticonArmorSidecar::isArmorMesh);
         }
 
         if (this.materialTextures != null)
@@ -164,22 +104,30 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
         }
     }
 
-    @Redirect(
+    @Inject(
             method = "render",
-            at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/cubic/render/vao/BOBJModelVAO;updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;)V"),
-            remap = false
+            at = @At("HEAD"),
+            remap = false,
+            require = 0
     )
-    private void bbsFbx$redirectUpdateMesh(
-            BOBJModelVAO vao, StencilMap stencilMap,
-            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
-            int light, int overlay, StencilMap stencilMap2, ShapeKeys keys,
-            Function<String, Link> textureResolver)
+    private void bbsFbx$setShapeKeysOnBOBJ(
+            CallbackInfo ci,
+            @com.llamalad7.mixinextras.sugar.Local(argsOnly = true) ShapeKeys keys)
     {
-        if (vao instanceof IShapeKeyHolder holder)
+        if (this.model instanceof IFbxModel)
         {
-            holder.bbsFbx$setShapeKeys(keys);
+            List<BOBJModelVAO> vaos = ((mchorse.bbs_mod.cubic.model.bobj.BOBJModel) this.model).getVaos();
+            if (vaos != null)
+            {
+                for (BOBJModelVAO vao : vaos)
+                {
+                    if (vao instanceof IShapeKeyHolder holder)
+                    {
+                        holder.bbsFbx$setShapeKeys(keys);
+                    }
+                }
+            }
         }
-        vao.updateMesh(stencilMap);
     }
 
     @Override
@@ -193,5 +141,4 @@ public abstract class ModelInstanceMixinFS implements IMaterialTextureHolder
     {
         return MaterialTextureDelegate.getDefaultMaterialTexture(this.model, material);
     }
-
 }

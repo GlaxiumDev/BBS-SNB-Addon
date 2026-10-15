@@ -12,15 +12,14 @@ import java.util.Set;
 /**
  * Fork gating for this addon's mixins.
  *
- * <p>{@code mixin.base}, {@code mixin.fs} and {@code mixin.cml} gate a mixin
- * to one fork family -- used where Base/FS/CML/BBS&nbsp;2.1 disagree on
- * method signature. {@code mixin.basecml} and {@code mixin.basefs} gate a
- * mixin to two of the forks. BBS&nbsp;2.1 reuses most FS render mixins but
- * skips FS-only hooks that target APIs it does not ship
+ * <p>{@code mixin.fs} and {@code mixin.cml} gate a mixin to one fork family
+ * -- used where FS/CML/BBS&nbsp;2.1 disagree on method signature. {@code mixin.basecml}
+ * gates to CML; {@code mixin.basefs} gates to the FS family. BBS&nbsp;2.1 reuses
+ * most FS render mixins but skips FS-only hooks that target APIs it does not ship
  * ({@code FormUtils.collectPropertyPaths}, three-arg
  * {@code BOBJModelSimpleVAO.processData}); emoticon simple armor on
  * FS21 uses {@code BOBJModelArmorMixinFS21} (two-arg geometric hinge)
- * instead of the Base/CML merged-{@code FBXCompiledData} path.</p>
+ * instead of CML's merged-{@code FBXCompiledData} path.</p>
  *
  * <p>Runs during mixin bootstrap, so it must never touch an actual BBS class
  * -- {@link BBSFork#fromLoadedMods()} only reads Fabric Loader metadata for
@@ -28,7 +27,6 @@ import java.util.Set;
  */
 public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 {
-    private static final String BASE_PACKAGE = "glaxium.snb.mixin.base.";
     private static final String FS_PACKAGE = "glaxium.snb.mixin.fs.";
     private static final String CML_PACKAGE = "glaxium.snb.mixin.cml.";
     private static final String BASECML_PACKAGE = "glaxium.snb.mixin.basecml.";
@@ -50,16 +48,16 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
     {
         BBSFork fork = BBSFork.fromLoadedMods();
 
-        if (mixinClassName.startsWith(BASE_PACKAGE))
+        if (fork == null)
         {
-            return fork == BBSFork.BASE;
+            return false;
         }
 
         if (mixinClassName.startsWith(FS_PACKAGE))
         {
             if (fork == BBSFork.FS)
             {
-                /* Wemppy FS uses the 3-arg armor hinge only; track hiding stays
+                /* BBS FS (2.7+) uses the 3-arg armor hinge only; track hiding stays
                  * on FormUtils.collectPropertyPaths (FormUtilsMixinFS). */
                 return !mixinClassName.endsWith(".BOBJModelArmorMixinFS21")
                         && !mixinClassName.endsWith(".UIReplaysEditorUtilsMixinFS21");
@@ -74,6 +72,12 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
                         && !mixinClassName.endsWith(".BOBJModelArmorMixinFS");
             }
 
+            return false;
+        }
+
+        if (mixinClassName.endsWith(".ModelInstanceVAOMixin")
+                || mixinClassName.endsWith(".CubicVAORendererMixinCML"))
+        {
             return false;
         }
 
@@ -103,14 +107,14 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
 
         if (mixinClassName.startsWith(BASECML_PACKAGE))
         {
-            /* Merged FBXCompiledData armor hinge is Base/CML only. FS21 keeps
+            /* Merged FBXCompiledData armor hinge is CML only. FS21 keeps
              * per-mesh VAOs and uses BOBJModelArmorMixinFS21 instead. */
-            return fork == BBSFork.BASE || fork == BBSFork.CML;
+            return fork == BBSFork.CML;
         }
 
         if (mixinClassName.startsWith(BASEFS_PACKAGE))
         {
-            return fork == BBSFork.BASE || fork == BBSFork.FS || fork == BBSFork.FS21;
+            return fork.isFsFamily();
         }
 
         return true;

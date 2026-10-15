@@ -30,24 +30,32 @@ public abstract class UITexturePickerMixin
     @Inject(method = "<init>", at = @At("RETURN"), remap = false)
     private void bbsFbx$hideArmorTextures(CallbackInfo info)
     {
-        UIFileLinkList list = ((UITexturePicker) (Object) this).picker;
-
-        if (list == null)
+        try
         {
-            return;
-        }
-
-        Predicate<Link> nativeFilter = list.filter;
-
-        list.filter((link) ->
-        {
-            if (nativeFilter != null && !nativeFilter.test(link))
+            java.lang.reflect.Field field = UITexturePicker.class.getField("picker");
+            Object listObj = field.get(this);
+            if (listObj instanceof UIFileLinkList list)
             {
-                return false;
-            }
+                Predicate<Link> nativeFilter = list.filter;
 
-            return !bbsFbx$isArmorTextureLink(link);
-        });
+                list.filter((link) ->
+                {
+                    if (nativeFilter != null && !nativeFilter.test(link))
+                    {
+                        return false;
+                    }
+
+                    return !bbsFbx$isArmorTextureLink(link);
+                });
+            }
+        }
+        catch (NoSuchFieldException e)
+        {
+            // BBS FS 2.7+ uses UITextureBrowser instead of UIFileLinkList picker
+        }
+        catch (Throwable ignored)
+        {
+        }
     }
 
     /** True when the link lives under a {@code textures/<armor-part>/} folder. */

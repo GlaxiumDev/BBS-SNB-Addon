@@ -77,6 +77,11 @@ public abstract class BOBJModelLoaderArmorMixin
 
         if (instance != null)
         {
+            if (id != null && id.startsWith("emoticons/") && manager != null)
+            {
+                glaxium.snb.model.mixamo.MixamoAnimationManager.injectMixamoAnimations(id, instance, manager.provider, manager.parser);
+            }
+
             try
             {
                 Object materials = instance.getClass().getField("materials").get(instance);

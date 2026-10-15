@@ -75,6 +75,11 @@ public final class HeadLookAt
             pitch = clamp(pitch, -look.limit, look.limit);
         }
 
+        if (Math.abs(yaw) < 1e-3F && (!applyPitch || Math.abs(pitch) < 1e-3F))
+        {
+            return;
+        }
+
         // Yaw matches stock BOBJ (-yaw). Pitch is inverted vs BOBJ (+pitch)
         // for imported FBX/GLB/glTF local head axes.
         final float yawSign = -1.0F;
@@ -168,11 +173,7 @@ public final class HeadLookAt
 
     private static boolean supportsLookAt(IModel model)
     {
-        /* Native BOBJ models get the same look-at as imported armatures:
-         * stock BBS only rotates a "head" bone inside ProceduralAnimator,
-         * so clip-animator BOBJ heads never follow the camera without this. */
-        return model instanceof BOBJModel
-            || (model instanceof IFbxModel fbx && fbx.bbsFbx$getFbxData() != null);
+        return model instanceof IFbxModel fbx && fbx.bbsFbx$getFbxData() != null;
     }
 
     private static void applyBobj(Transform transform, float yawDeg, float pitchDeg, boolean applyPitch,
