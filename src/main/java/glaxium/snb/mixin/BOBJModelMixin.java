@@ -3,14 +3,20 @@ package glaxium.snb.mixin;
 import glaxium.snb.model.fbx.loaders.FBXCompiledData;
 import glaxium.snb.model.fbx.loaders.IFbxModel;
 
+import mchorse.bbs_mod.bobj.BOBJArmature;
+import mchorse.bbs_mod.bobj.BOBJLoader;
 import mchorse.bbs_mod.cubic.model.bobj.BOBJModel;
+import mchorse.bbs_mod.cubic.render.vao.BOBJModelVAO;
 
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -43,6 +49,8 @@ import java.util.Set;
 @Mixin(value = BOBJModel.class, remap = false)
 public abstract class BOBJModelMixin implements IFbxModel
 {
+    @Shadow public List<BOBJModelVAO> vaos;
+    @Shadow public BOBJArmature armature;
     @Unique
     private FBXCompiledData bbsFbx$fbxData;
 
@@ -86,4 +94,50 @@ public abstract class BOBJModelMixin implements IFbxModel
         }
     }
 
+    @Inject(method = "setup", at = @At("RETURN"), remap = false)
+    private void bbsFbx$useCpuVaoForFbx(CallbackInfo info)
+    {
+        if (this.vaos == null)
+        {
+            return;
+        }
+
+        for (int i = 0; i < this.vaos.size(); i++)
+        {
+            BOBJModelVAO vao = this.vaos.get(i);
+            if (vao != null && vao.data instanceof FBXCompiledData && vao.getClass() != BOBJModelVAO.class)
+            {
+                vao.delete();
+                this.vaos.set(i, this.bbsFbx$createCpuVao(vao.data, this.armature));
+            }
+        }
+    }
+
+    @Unique
+    private BOBJModelVAO bbsFbx$createCpuVao(BOBJLoader.CompiledData data, BOBJArmature armature)
+    {
+        try
+        {
+            return BOBJModelVAO.class.getConstructor(BOBJLoader.CompiledData.class, BOBJArmature.class)
+                    .newInstance(data, armature);
+        }
+        catch (NoSuchMethodException e)
+        {
+            try
+            {
+                BOBJModelVAO vao = BOBJModelVAO.class.getConstructor(BOBJLoader.CompiledData.class)
+                        .newInstance(data);
+                vao.armature = armature;
+                return vao;
+            }
+            catch (Exception ex)
+            {
+                throw new RuntimeException(ex);
+            }
+        }
+        catch (Exception e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
 }
