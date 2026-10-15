@@ -50,8 +50,7 @@
     "cml.UIFormPropertyTrackSheetsMixinCML",
     "cml.PreviewFrameMixinCML",
     "cml.FormUIPreviewCacheMixinCML",
-    "cml.UIFormListPreviewMixinCML",
-    "cml.FlipDebugMixinCML"
+    "cml.UIFormListPreviewMixinCML"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -42,7 +42,17 @@ import java.lang.reflect.Method;
 @Mixin(value = ModelFormRenderer.class, remap = false)
 public abstract class ModelFormRendererMixinCML
 {
-    @Inject(method = "renderModel", at = @At("HEAD"), remap = false)
+    @Inject(
+            method = {
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/class_4587;Lmchorse/bbs_mod/forms/renderers/FormRenderingContext;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/class_4587;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/forms/renderers/FormRenderingContext;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/client/util/math/MatrixStack;)V"
+            },
+            at = @At("HEAD"),
+            require = 0,
+            remap = false
+    )
     private void bbsFbx$pushMaterialOverrides(CallbackInfo info,
             @Local(argsOnly = true) IEntity target,
             @Local(argsOnly = true) ModelInstance model,
@@ -129,7 +139,17 @@ public abstract class ModelFormRendererMixinCML
         }
     }
 
-    @Inject(method = "renderModel", at = @At("RETURN"), remap = false)
+    @Inject(
+            method = {
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/class_4587;Lmchorse/bbs_mod/forms/renderers/FormRenderingContext;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/class_4587;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/class_4587;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/forms/renderers/FormRenderingContext;)V",
+                "renderModel(Lmchorse/bbs_mod/forms/entities/IEntity;Ljava/util/function/Supplier;Lnet/minecraft/client/util/math/MatrixStack;Lmchorse/bbs_mod/cubic/ModelInstance;IILmchorse/bbs_mod/utils/colors/Color;ZLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;FZLnet/minecraft/client/util/math/MatrixStack;)V"
+            },
+            at = @At("RETURN"),
+            require = 0,
+            remap = false
+    )
     private void bbsFbx$popMaterialOverrides(CallbackInfo info)
     {
         CurrentMaterialTextureOverrides.pop();

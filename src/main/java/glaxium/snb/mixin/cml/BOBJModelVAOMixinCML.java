@@ -71,7 +71,15 @@ public abstract class BOBJModelVAOMixinCML
     @Shadow public int texCoordBuffer;
     @Shadow public int tangentBuffer;
 
-    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(
+            method = {
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V"
+            },
+            at = @At("HEAD"), cancellable = true, remap = false, require = 0
+    )
     private void bbsFbx$hideEmptyArmorSlot(
             ShaderProgram shader, MatrixStack stack, float r, float g, float b, float a,
             StencilMap stencilMap, int light, int overlay, Link defaultTexture, CallbackInfo info)
@@ -82,19 +90,43 @@ public abstract class BOBJModelVAOMixinCML
         }
     }
 
-    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 0, argsOnly = true, remap = false)
+    @ModifyVariable(
+            method = {
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V"
+            },
+            at = @At("HEAD"), ordinal = 0, argsOnly = true, remap = false, require = 0
+    )
     private float bbsFbx$tintArmorRed(float value)
     {
         return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 0, value);
     }
 
-    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 1, argsOnly = true, remap = false)
+    @ModifyVariable(
+            method = {
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V"
+            },
+            at = @At("HEAD"), ordinal = 1, argsOnly = true, remap = false, require = 0
+    )
     private float bbsFbx$tintArmorGreen(float value)
     {
         return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 1, value);
     }
 
-    @ModifyVariable(method = "render", at = @At("HEAD"), ordinal = 2, argsOnly = true, remap = false)
+    @ModifyVariable(
+            method = {
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V"
+            },
+            at = @At("HEAD"), ordinal = 2, argsOnly = true, remap = false, require = 0
+    )
     private float bbsFbx$tintArmorBlue(float value)
     {
         return CurrentEmoticonArmor.tint(bbsFbx$meshName(), 2, value);
@@ -105,7 +137,15 @@ public abstract class BOBJModelVAOMixinCML
         return this.data == null || this.data.mesh == null ? null : this.data.mesh.name;
     }
 
-    @Inject(method = "render", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(
+            method = {
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;IILmchorse/bbs_mod/resources/Link;)V",
+                "render(Lnet/minecraft/class_5944;Lnet/minecraft/class_4587;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V",
+                "render(Lnet/minecraft/client/gl/ShaderProgram;Lnet/minecraft/client/util/math/MatrixStack;FFFFLmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;II)V"
+            },
+            at = @At("HEAD"), cancellable = true, remap = false, require = 0
+    )
     private void bbsFbx$renderPerMaterial(
             ShaderProgram shader, MatrixStack stack, float r, float g, float b, float a,
             StencilMap stencilMap, int light, int overlay, Link defaultTexture,
