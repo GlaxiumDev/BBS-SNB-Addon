@@ -18,8 +18,8 @@ import java.util.Optional;
 public enum BBSFork
 {
     FS("BBS FS (2.7+)"),
-    /** McHorse/community BBS 2.3.2 — FS-shaped render APIs with multi-pass rendering. */
-    FS21("BBS 2.3.2 (FS fork)"),
+    /** McHorse/community BBS 2.3.x — FS-shaped render APIs with multi-pass rendering. */
+    FS21("BBS 2.3.x (FS fork)"),
     CML("BBS CML Edition");
 
     /** Present in FS / FS21. Fully qualified. */
@@ -111,7 +111,7 @@ public enum BBSFork
     }
 
     /**
-     * BBS 2.1 / 2.3.2 (FS fork): distinguished by description, custom
+     * BBS 2.1 / 2.3.x (FS fork): distinguished by description, custom
      * {@code bbs:git_commit}, or version {@code 2.1-*}, {@code 2.2-*}, {@code 2.3-*}.
      */
     private static boolean isFs21ByMetadata()
@@ -128,7 +128,14 @@ public enum BBSFork
             ModMetadata meta = container.get().getMetadata();
             String version = meta.getVersion().getFriendlyString();
 
-            return version != null && version.startsWith("2.3.2");
+            if (version != null && (version.startsWith("2.3.") || version.startsWith("2.1.") || version.startsWith("2.2.")))
+            {
+                return true;
+            }
+
+            String desc = meta.getDescription();
+
+            return desc != null && desc.contains("BBS FS fork");
         }
         catch (Throwable t)
         {
