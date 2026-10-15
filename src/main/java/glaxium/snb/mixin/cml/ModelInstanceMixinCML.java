@@ -170,22 +170,37 @@ public abstract class ModelInstanceMixinCML implements IMaterialTextureHolder
     }
 
 
-    @Redirect(
-            method = "render",
-            at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/cubic/render/vao/BOBJModelVAO;updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;)V"),
-            remap = false
+    @Inject(
+            method = {
+                "render(Lnet/minecraft/class_4587;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lnet/minecraft/class_4587;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "render(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V"
+            },
+            at = @At("HEAD"),
+            remap = false,
+            require = 0
     )
-    private void bbsFbx$redirectUpdateMesh(
-            BOBJModelVAO vao, StencilMap stencilMap,
-            MatrixStack stack, Supplier<ShaderProgram> program, Color color,
-            int light, int overlay, StencilMap stencilMap2, ShapeKeys keys,
-            @Coerce Object textureResolver)
+    private void bbsFbx$setShapeKeysOnBOBJ(
+            CallbackInfo ci,
+            @com.llamalad7.mixinextras.sugar.Local(argsOnly = true) ShapeKeys keys)
     {
-        if (vao instanceof IShapeKeyHolder holder)
+        if (this.model instanceof IFbxModel && this.model instanceof mchorse.bbs_mod.cubic.model.bobj.BOBJModel bobjModel)
         {
-            holder.bbsFbx$setShapeKeys(keys);
+            List<BOBJModelVAO> vaos = bobjModel.getVaos();
+            if (vaos != null)
+            {
+                for (BOBJModelVAO vao : vaos)
+                {
+                    if (vao instanceof IShapeKeyHolder holder)
+                    {
+                        holder.bbsFbx$setShapeKeys(keys);
+                    }
+                }
+            }
         }
-        vao.updateMesh(stencilMap);
     }
 
     @Unique

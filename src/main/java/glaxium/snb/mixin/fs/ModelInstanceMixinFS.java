@@ -105,7 +105,14 @@ public abstract class ModelInstanceMixinFS implements IModelMaterialTextures
     }
 
     @Inject(
-            method = "render",
+            method = {
+                "render(Lnet/minecraft/class_4587;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lnet/minecraft/class_4587;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "render(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V"
+            },
             at = @At("HEAD"),
             remap = false,
             require = 0
@@ -114,9 +121,9 @@ public abstract class ModelInstanceMixinFS implements IModelMaterialTextures
             CallbackInfo ci,
             @com.llamalad7.mixinextras.sugar.Local(argsOnly = true) ShapeKeys keys)
     {
-        if (this.model instanceof IFbxModel)
+        if (this.model instanceof IFbxModel && this.model instanceof mchorse.bbs_mod.cubic.model.bobj.BOBJModel bobjModel)
         {
-            List<BOBJModelVAO> vaos = ((mchorse.bbs_mod.cubic.model.bobj.BOBJModel) this.model).getVaos();
+            List<BOBJModelVAO> vaos = bobjModel.getVaos();
             if (vaos != null)
             {
                 for (BOBJModelVAO vao : vaos)

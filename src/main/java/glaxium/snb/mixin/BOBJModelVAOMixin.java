@@ -17,6 +17,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Coerce;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
@@ -446,30 +447,13 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
 
             this.bbsFbx$morphBaseValid = true;
             this.bbsFbx$morphDataRef = this.data;
+            this.bbsFbx$dirtyPositionCount = 0;
+            this.bbsFbx$dirtyNormalCount = 0;
         }
         else
         {
-            int[] dirtyPositions = this.bbsFbx$dirtyPositions;
-
-            for (int i = 0, n = this.bbsFbx$dirtyPositionCount; i < n; i++)
-            {
-                int component = dirtyPositions[i];
-
-                morphedVertices[component] = restVertices[component];
-            }
-
-            int[] dirtyNormals = this.bbsFbx$dirtyNormals;
-
-            for (int i = 0, n = this.bbsFbx$dirtyNormalCount; i < n; i++)
-            {
-                int component = dirtyNormals[i];
-
-                morphedNormals[component] = restNormals[component];
-            }
+            this.bbsFbx$restoreDirtyVertices(restVertices, restNormals);
         }
-
-        this.bbsFbx$dirtyPositionCount = 0;
-        this.bbsFbx$dirtyNormalCount = 0;
 
         for (Map.Entry<String, Float> entry : this.bbsFbx$shapeKeys.shapeKeys.entrySet())
         {
@@ -551,12 +535,112 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         this.bbsFbx$dirtyNormalCount = normals;
     }
 
+    @Unique
+    private void bbsFbx$restoreDirtyVertices(float[] restVertices, float[] restNormals)
+    {
+        if (this.bbsFbx$morphedVertices == null || this.bbsFbx$morphedNormals == null)
+        {
+            return;
+        }
+
+        if (!this.bbsFbx$morphBaseValid || this.bbsFbx$morphDataRef != this.data)
+        {
+            System.arraycopy(restVertices, 0, this.bbsFbx$morphedVertices, 0, restVertices.length);
+            System.arraycopy(restNormals, 0, this.bbsFbx$morphedNormals, 0, restNormals.length);
+            this.bbsFbx$morphBaseValid = true;
+            this.bbsFbx$morphDataRef = this.data;
+        }
+        else if (this.bbsFbx$dirtyPositionCount > 0 || this.bbsFbx$dirtyNormalCount > 0)
+        {
+            float[] morphedVertices = this.bbsFbx$morphedVertices;
+            int[] dirtyPositions = this.bbsFbx$dirtyPositions;
+
+            for (int i = 0, n = this.bbsFbx$dirtyPositionCount; i < n; i++)
+            {
+                int component = dirtyPositions[i];
+                morphedVertices[component] = restVertices[component];
+            }
+
+            float[] morphedNormals = this.bbsFbx$morphedNormals;
+            int[] dirtyNormals = this.bbsFbx$dirtyNormals;
+
+            for (int i = 0, n = this.bbsFbx$dirtyNormalCount; i < n; i++)
+            {
+                int component = dirtyNormals[i];
+                morphedNormals[component] = restNormals[component];
+            }
+        }
+
+        this.bbsFbx$dirtyPositionCount = 0;
+        this.bbsFbx$dirtyNormalCount = 0;
+    }
+
     // ---------------------------------------------------------------
     // updateMesh
     // ---------------------------------------------------------------
 
-    @Inject(method = "updateMesh", at = @At("HEAD"), cancellable = true, remap = false)
+    @Inject(
+            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;)V",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false,
+            require = 0
+    )
     private void bbsFbx$updateMeshOptimized(StencilMap stencilMap, CallbackInfo info)
+    {
+        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
+    }
+
+    @Inject(
+            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;J)V",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false,
+            require = 0
+    )
+    private void bbsFbx$updateMeshOptimizedLong(StencilMap stencilMap, long key, CallbackInfo info)
+    {
+        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
+    }
+
+    @Inject(
+            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false,
+            require = 0
+    )
+    private void bbsFbx$updateMeshOptimizedPass(StencilMap stencilMap, @Coerce Object pass, CallbackInfo info)
+    {
+        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
+    }
+
+    @Inject(
+            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;[Lorg/joml/Matrix4f;)V",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false,
+            require = 0
+    )
+    private void bbsFbx$updateMeshOptimizedMatrices(StencilMap stencilMap, Matrix4f[] matrices, CallbackInfo info)
+    {
+        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
+    }
+
+    @Inject(
+            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;[Lorg/joml/Matrix4f;[Z)V",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false,
+            require = 0
+    )
+    private void bbsFbx$updateMeshOptimizedVisibility(StencilMap stencilMap, Matrix4f[] matrices, boolean[] visibility, CallbackInfo info)
+    {
+        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
+    }
+
+    @Unique
+    private void bbsFbx$doUpdateMeshOptimized(StencilMap stencilMap, CallbackInfo info)
     {
         /* Pose cache: skip skinning + upload entirely when the pose hasn't
          * changed since the last call (static props pay O(bones) instead of
@@ -566,13 +650,23 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
                 && this.data instanceof FBXCompiledData fbxCheck
                 && fbxCheck.shapeKeyDeltas != null && !fbxCheck.shapeKeyDeltas.isEmpty();
 
-        boolean unchanged = this.bbsFbx$poseUnchanged(stencilMap);
+        float[] restVertices = this.data.posData;
+        float[] restNormals = this.data.normData;
 
-        if (!shapeKeysActive && unchanged)
+        if (!shapeKeysActive && (this.bbsFbx$dirtyPositionCount > 0 || this.bbsFbx$dirtyNormalCount > 0))
         {
-            info.cancel();
+            this.bbsFbx$restoreDirtyVertices(restVertices, restNormals);
+        }
+        else
+        {
+            boolean unchanged = this.bbsFbx$poseUnchanged(stencilMap);
 
-            return;
+            if (!shapeKeysActive && unchanged && this.bbsFbx$dirtyPositionCount == 0 && this.bbsFbx$dirtyNormalCount == 0)
+            {
+                info.cancel();
+
+                return;
+            }
         }
 
         /* Boneless armatures have a zero-length matrices array, but data
@@ -591,15 +685,12 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         if (matrices == null || matrices.length == 0)
         {
             info.cancel();
-            this.bbsFbx$uploadUnskinned(stencilMap);
+            this.bbsFbx$uploadUnskinned(stencilMap, shapeKeysActive);
 
             return;
         }
 
         info.cancel();
-
-        float[] restVertices = this.data.posData;
-        float[] restNormals = this.data.normData;
 
         float[] sourceVertices = restVertices;
         float[] sourceNormals = restNormals;
@@ -1047,13 +1138,25 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
      * {@code tmpLight} write collapses to 0 either way).
      */
     @Unique
-    private void bbsFbx$uploadUnskinned(StencilMap stencilMap)
+    private void bbsFbx$uploadUnskinned(StencilMap stencilMap, boolean shapeKeysActive)
     {
+        float[] restVertices = this.data.posData;
+        float[] restNormals = this.data.normData;
+
         float[] newVertices = this.tmpVertices;
         float[] newNormals = this.tmpNormals;
 
-        System.arraycopy(this.data.posData, 0, newVertices, 0, this.data.posData.length);
-        System.arraycopy(this.data.normData, 0, newNormals, 0, this.data.normData.length);
+        if (shapeKeysActive)
+        {
+            this.bbsFbx$blendShapeKeys((FBXCompiledData) this.data, restVertices, restNormals);
+            System.arraycopy(this.bbsFbx$morphedVertices, 0, newVertices, 0, this.bbsFbx$morphedVertices.length);
+            System.arraycopy(this.bbsFbx$morphedNormals, 0, newNormals, 0, this.bbsFbx$morphedNormals.length);
+        }
+        else
+        {
+            System.arraycopy(restVertices, 0, newVertices, 0, restVertices.length);
+            System.arraycopy(restNormals, 0, newNormals, 0, restNormals.length);
+        }
 
         if (stencilMap != null)
         {
