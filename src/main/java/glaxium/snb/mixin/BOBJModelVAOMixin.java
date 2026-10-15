@@ -591,54 +591,6 @@ public abstract class BOBJModelVAOMixin implements IShapeKeyHolder
         this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
     }
 
-    @Inject(
-            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;J)V",
-            at = @At("HEAD"),
-            cancellable = true,
-            remap = false,
-            require = 0
-    )
-    private void bbsFbx$updateMeshOptimizedLong(StencilMap stencilMap, long key, CallbackInfo info)
-    {
-        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
-    }
-
-    @Inject(
-            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
-            at = @At("HEAD"),
-            cancellable = true,
-            remap = false,
-            require = 0
-    )
-    private void bbsFbx$updateMeshOptimizedPass(StencilMap stencilMap, @Coerce Object pass, CallbackInfo info)
-    {
-        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
-    }
-
-    @Inject(
-            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;[Lorg/joml/Matrix4f;)V",
-            at = @At("HEAD"),
-            cancellable = true,
-            remap = false,
-            require = 0
-    )
-    private void bbsFbx$updateMeshOptimizedMatrices(StencilMap stencilMap, Matrix4f[] matrices, CallbackInfo info)
-    {
-        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
-    }
-
-    @Inject(
-            method = "updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;[Lorg/joml/Matrix4f;[Z)V",
-            at = @At("HEAD"),
-            cancellable = true,
-            remap = false,
-            require = 0
-    )
-    private void bbsFbx$updateMeshOptimizedVisibility(StencilMap stencilMap, Matrix4f[] matrices, boolean[] visibility, CallbackInfo info)
-    {
-        this.bbsFbx$doUpdateMeshOptimized(stencilMap, info);
-    }
-
     @Unique
     private void bbsFbx$doUpdateMeshOptimized(StencilMap stencilMap, CallbackInfo info)
     {

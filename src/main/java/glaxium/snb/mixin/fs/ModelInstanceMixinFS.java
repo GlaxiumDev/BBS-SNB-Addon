@@ -137,6 +137,36 @@ public abstract class ModelInstanceMixinFS implements IModelMaterialTextures
         }
     }
 
+    @Redirect(
+            method = {
+                "render(Lnet/minecraft/class_4587;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V",
+                "render(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;)V"
+            },
+            at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/cubic/render/vao/BOBJModelVAO;updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;J)V"),
+            remap = false,
+            require = 0
+    )
+    private void bbsFbx$redirectUpdateMeshFS(BOBJModelVAO vao, StencilMap stencilMap, long armatureKey)
+    {
+        vao.updateMesh(stencilMap);
+    }
+
+    @Redirect(
+            method = {
+                "render(Lnet/minecraft/class_4587;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "render(Lnet/minecraft/client/util/math/MatrixStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V",
+                "render(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/function/Supplier;Lmchorse/bbs_mod/utils/colors/Color;IILmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/obj/shapes/ShapeKeys;Ljava/util/function/Function;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V"
+            },
+            at = @At(value = "INVOKE", target = "Lmchorse/bbs_mod/cubic/render/vao/BOBJModelVAO;updateMesh(Lmchorse/bbs_mod/ui/framework/elements/utils/StencilMap;Lmchorse/bbs_mod/cubic/render/IModelRenderPass;)V"),
+            remap = false,
+            require = 0
+    )
+    private void bbsFbx$redirectUpdateMeshFS21(BOBJModelVAO vao, StencilMap stencilMap, @org.spongepowered.asm.mixin.injection.Coerce Object pass)
+    {
+        vao.updateMesh(stencilMap);
+    }
+
     @Override
     public List<String> bbsFbx$getMaterials()
     {
