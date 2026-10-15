@@ -30,7 +30,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = BOBJModel.class, remap = false)
 public abstract class BOBJModelCopyMixin
 {
-    @Inject(method = "copy", at = @At("RETURN"), remap = false)
+    @Inject(method = "copy()Lmchorse/bbs_mod/cubic/IModel;", at = @At("RETURN"), remap = false, require = 0)
     private void bbsFbx$copyCarriesFbxData(CallbackInfoReturnable<IModel> info)
     {
         IModel result = info.getReturnValue();
