@@ -75,12 +75,38 @@ public abstract class ModelMeshMixin implements IModelMeshMaterial
     @Override
     public String bbsFbx$getMaterial()
     {
-        return this.bbsFbx$material;
+        if (this.bbsFbx$material != null && !this.bbsFbx$material.isEmpty())
+        {
+            return this.bbsFbx$material;
+        }
+
+        try
+        {
+            Object val = this.getClass().getField("material").get(this);
+
+            if (val instanceof String s && !s.isEmpty())
+            {
+                return s;
+            }
+        }
+        catch (Throwable ignored)
+        {
+        }
+
+        return this.bbsFbx$material == null ? "" : this.bbsFbx$material;
     }
 
     @Override
     public void bbsFbx$setMaterial(String material)
     {
         this.bbsFbx$material = material == null ? "" : material;
+
+        try
+        {
+            this.getClass().getField("material").set(this, this.bbsFbx$material);
+        }
+        catch (Throwable ignored)
+        {
+        }
     }
 }

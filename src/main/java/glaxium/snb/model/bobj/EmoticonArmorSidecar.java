@@ -1,6 +1,7 @@
 package glaxium.snb.model.bobj;
 
-import glaxium.snb.BBSFbxAddon;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import mchorse.bbs_mod.bobj.BOBJArmature;
 import mchorse.bbs_mod.bobj.BOBJLoader;
@@ -22,6 +23,7 @@ import java.util.Set;
  */
 public final class EmoticonArmorSidecar
 {
+    private static final Logger LOGGER = LoggerFactory.getLogger("BBS Fbx Addon");
     public static final String HELMET = "armor_helmet";
     public static final String CHEST = "armor_chest";
     public static final String LEGGINGS = "armor_leggings";
@@ -96,7 +98,7 @@ public final class EmoticonArmorSidecar
 
                 if (mergeGeometry(modelData, armorData))
                 {
-                    BBSFbxAddon.LOGGER.info("Loaded Emoticons armor sidecar {} for {}", candidate, id);
+                    LOGGER.info("Loaded Emoticons armor sidecar {} for {}", candidate, id);
                 }
 
                 return;
@@ -108,7 +110,7 @@ public final class EmoticonArmorSidecar
             }
         }
 
-        BBSFbxAddon.LOGGER.warn("Couldn't load the packaged Emoticons armor sidecar for {}", id);
+        LOGGER.warn("Couldn't load the packaged Emoticons armor sidecar for {}", id);
     }
 
     /**

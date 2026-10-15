@@ -17,9 +17,9 @@ import java.util.Optional;
  */
 public enum BBSFork
 {
-    FS("BBS FS"),
-    /** McHorse/community BBS 2.1 line — FS-shaped render APIs, older SimpleVAO/FormUtils. */
-    FS21("BBS 2.1 (FS fork)"),
+    FS("BBS FS (2.7+)"),
+    /** McHorse/community BBS 2.3.x — FS-shaped render APIs with multi-pass rendering. */
+    FS21("BBS 2.3.x (FS fork)"),
     CML("BBS CML Edition");
 
     /** Present in FS / FS21. Fully qualified. */
@@ -45,7 +45,7 @@ public enum BBSFork
         return this.label;
     }
 
-    /** True for Wemppy FS and the BBS 2.1 FS fork (shared FS-shaped render hooks). */
+    /** True for Wemppy FS (2.7+) and the BBS 2.1 FS fork (shared FS-shaped render hooks). */
     public boolean isFsFamily()
     {
         return this == FS || this == FS21;
@@ -77,11 +77,7 @@ public enum BBSFork
         {
             // Some FS builds ship under the shared "bbs" id with no
             // distinguishing name either -- the class probe is the last
-            // resort. Safe to run here too: by the time anything actually
-            // calls fromLoadedMods() for real gating decisions, mixin
-            // bootstrap for THIS addon's own targets has already happened;
-            // it's only unsafe to probe a class that one of our OWN mixins
-            // also targets, and ReplayListEntry isn't one of them.
+            // resort.
             fork = FS;
         }
 
@@ -115,8 +111,8 @@ public enum BBSFork
     }
 
     /**
-     * BBS 2.1 (FS fork): distinguished by description, custom
-     * {@code bbs:git_commit}, or version {@code 2.1-*} (not CML's {@code 2.1.1-*}).
+     * BBS 2.1 / 2.3.x (FS fork): distinguished by description, custom
+     * {@code bbs:git_commit}, or version {@code 2.1-*}, {@code 2.2-*}, {@code 2.3-*}.
      */
     private static boolean isFs21ByMetadata()
     {
@@ -130,23 +126,16 @@ public enum BBSFork
             }
 
             ModMetadata meta = container.get().getMetadata();
-            String description = meta.getDescription();
-
-            if (description != null && description.toUpperCase().contains("BBS FS FORK"))
-            {
-                return true;
-            }
-
-            CustomValue git = meta.getCustomValue("bbs:git_commit");
-
-            if (git != null && git.getType() == CustomValue.CvType.STRING)
-            {
-                return true;
-            }
-
             String version = meta.getVersion().getFriendlyString();
 
-            return version != null && version.startsWith("2.1-");
+            if (version != null && (version.startsWith("2.3.") || version.startsWith("2.1.") || version.startsWith("2.2.")))
+            {
+                return true;
+            }
+
+            String desc = meta.getDescription();
+
+            return desc != null && desc.contains("BBS FS fork");
         }
         catch (Throwable t)
         {

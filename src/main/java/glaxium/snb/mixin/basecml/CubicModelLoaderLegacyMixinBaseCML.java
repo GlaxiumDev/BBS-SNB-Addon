@@ -139,6 +139,19 @@ public abstract class CubicModelLoaderLegacyMixinBaseCML
         }
 
         ((IModelMaterialTextures) cubic).bbsFbx$setMaterialTextures(new ArrayList<>(materials), materialTextures);
+
+        for (String name : materials)
+        {
+            if (!instance.materials.contains(name))
+            {
+                instance.materials.add(name);
+            }
+            Link tex = materialTextures.get(name);
+            if (tex != null)
+            {
+                instance.materialTextures.put(name, tex);
+            }
+        }
     }
 
     /**

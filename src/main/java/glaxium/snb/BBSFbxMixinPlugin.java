@@ -57,7 +57,7 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
         {
             if (fork == BBSFork.FS)
             {
-                /* Wemppy FS uses the 3-arg armor hinge only; track hiding stays
+                /* BBS FS (2.7+) uses the 3-arg armor hinge only; track hiding stays
                  * on FormUtils.collectPropertyPaths (FormUtilsMixinFS). */
                 return !mixinClassName.endsWith(".BOBJModelArmorMixinFS21")
                         && !mixinClassName.endsWith(".UIReplaysEditorUtilsMixinFS21");
@@ -72,6 +72,12 @@ public class BBSFbxMixinPlugin implements IMixinConfigPlugin
                         && !mixinClassName.endsWith(".BOBJModelArmorMixinFS");
             }
 
+            return false;
+        }
+
+        if (mixinClassName.endsWith(".ModelInstanceVAOMixin")
+                || mixinClassName.endsWith(".CubicVAORendererMixinCML"))
+        {
             return false;
         }
 

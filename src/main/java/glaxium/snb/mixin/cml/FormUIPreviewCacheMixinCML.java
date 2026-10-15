@@ -57,7 +57,15 @@ public abstract class FormUIPreviewCacheMixinCML
     {
         if (!(form instanceof ModelForm))
         {
-            FormUtilsClient.renderUI(form, context, x1, y1, x2, y2, animate);
+            try
+            {
+                FormUtilsClient.class.getMethod("renderUI", Form.class, UIContext.class, int.class, int.class, int.class, int.class, boolean.class)
+                        .invoke(null, form, context, x1, y1, x2, y2, animate);
+            }
+            catch (Throwable ignored)
+            {
+                FormUtilsClient.renderUI(form, context, x1, y1, x2, y2);
+            }
         }
     }
 }
